@@ -147,7 +147,7 @@ local function _build_gui()
     bg.Size=UDim2.new(1,0,0,115)
     bg.Position=UDim2.new(0,0,0,0)
     bg.BackgroundTransparency=1
-    bg.Image="rbxassetid://74387664833992"
+    bg.Image="rbxassetid://113175072724158"
     bg.ImageTransparency=0.1
     bg.ScaleType=Enum.ScaleType.Fit
     bg.ZIndex=1
