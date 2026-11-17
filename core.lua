@@ -1,127 +1,90 @@
--- core.lua | Roblox LuaU | Solara | v3
--- Evasão: XOR cipher, identifier scrambling, opcode folding, dead-code injection,
---         string splitting, constant folding, junk globals, anti-tamper timestamp
+-- core.lua | Roblox LuaU | Solara | v4
+-- Evasão: XOR, string split, junk globals, dead code, constant folding, anti-tamper
 
--- ═══════════════════════════════════════════════════════════════════
---  ANTI-TAMPER: verifica se o ambiente é Solara/executor legítimo
--- ═══════════════════════════════════════════════════════════════════
-local _env_ok = (type(Drawing) == "table" or type(Drawing) == "userdata")
-    and type(bit32) == "table"
-    and type(game) == "userdata"
-if not _env_ok then return end  -- não executa fora de executor
+-- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
+local _env_ok = (type(Drawing)=="table" or type(Drawing)=="userdata")
+    and type(bit32)=="table" and type(game)=="userdata"
+if not _env_ok then return end
 
--- ═══════════════════════════════════════════════════════════════════
---  XOR ENGINE  (KEY rotativo por sessão — não é constante)
--- ═══════════════════════════════════════════════════════════════════
-local _SEED = (tick() * 1000) % 251 + 2   -- 2..252, nunca 0
-local function _xenc(s, k)
-    local o = table.create(#s)
-    for i = 1, #s do o[i] = string.char(bit32.bxor(string.byte(s,i), k)) end
-    return table.concat(o)
-end
--- strings encriptadas com KEY=0x4B (compiladas offline)
-local _K0 = 0x4B
-local function _d(s) return _xenc(s, _K0) end
-
--- ═══════════════════════════════════════════════════════════════════
---  STRING SPLIT OBFUSCATION  (quebra literais em pedaços)
--- ═══════════════════════════════════════════════════════════════════
-local function _j(...) return table.concat({...}) end  -- join
-
--- nomes de serviço montados em runtime — não aparecem como literal
-local _svc = {
-    _j("Pl","ay","er","s"),
-    _j("Ru","nS","er","vi","ce"),
-    _j("Us","er","In","pu","tS","er","vi","ce"),
-    _j("St","ar","te","rG","ui"),
-    _j("Co","re","Gu","i"),
-    _j("Tw","ee","nS","er","vi","ce"),
-}
-
--- ═══════════════════════════════════════════════════════════════════
---  JUNK GLOBALS  (polui o namespace, dificulta análise estática)
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ STRING UTILS ═════════════════════════════════════════════════
+local function _j(...) return table.concat({...}) end
 local function _rid(n)
     local c,t="abcdefghijklmnopqrstuvwxyz0123456789",{}
     for i=1,n or 10 do local p=math.random(1,#c); t[i]=c:sub(p,p) end
     return table.concat(t)
 end
--- injeta ~20 globais junk com valores inócuos
-for _=1,20 do rawset(_G, "_"..(_rid(8)), math.random()*9999) end
 
--- ═══════════════════════════════════════════════════════════════════
---  DEAD CODE INJECTION  (bloco nunca executado, confunde análise)
--- ═══════════════════════════════════════════════════════════════════
+-- serviços montados em runtime
+local _svc={
+    _j("Pl","ay","er","s"),
+    _j("Ru","nS","er","vi","ce"),
+    _j("Us","er","In","pu","tS","er","vi","ce"),
+    _j("St","ar","te","rG","ui"),
+    _j("Co","re","Gu","i"),
+}
+
+-- ═══ JUNK GLOBALS ═════════════════════════════════════════════════
+for _=1,24 do rawset(_G,"_".._rid(9),math.random()*9999) end
+
+-- ═══ DEAD CODE ════════════════════════════════════════════════════
 if false then
-    local _ghost = game:GetService("HttpService")
-    _ghost:GetAsync("https://example.com")
-    Drawing.new("Square").Visible = true
+    local _g=game:GetService("HttpService")
+    _g:GetAsync("https://example.com")
+    Drawing.new("Square").Visible=true
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  CONSTANT FOLDING MANUAL  (esconde valores numéricos reais)
--- ═══════════════════════════════════════════════════════════════════
--- 150  = 0x96         = bit32.bxor(0xFF, 0x69)
--- 0.14 = 14/100
--- 1000 = 10^3
-local _FOV_VAL    = bit32.bxor(0xFF, 0x69)        -- 150
-local _SMOOTH_VAL = 14 / 100                        -- 0.14
-local _DIST_VAL   = 10^3                            -- 1000
+-- ═══ CONSTANT FOLDING ═════════════════════════════════════════════
+local _FOV_DEF  = bit32.bxor(0xFF,0x69)   -- 150
+local _SM_DEF   = 14/100                   -- 0.14
+local _DIST_DEF = 10^3                     -- 1000
+local _SK_THICK = bit32.bxor(0x03,0x01)   -- 2  (skeleton thickness)
 
--- ═══════════════════════════════════════════════════════════════════
---  SERVICES
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ SERVICES ═════════════════════════════════════════════════════
 local _P   = game:GetService(_svc[1])
 local _RS  = game:GetService(_svc[2])
 local _UIS = game:GetService(_svc[3])
 local _SG  = game:GetService(_svc[4])
-local _TW  = game:GetService(_svc[6])
 local _lp  = _P.LocalPlayer
 local _cam = workspace.CurrentCamera
 
--- ═══════════════════════════════════════════════════════════════════
---  CONFIG  (tudo OFF por padrão)
--- ═══════════════════════════════════════════════════════════════════
-local CFG = {
+-- ═══ CONFIG ═══════════════════════════════════════════════════════
+local CFG={
     esp=false, esp_box=false, esp_name=false,
     esp_dist=false, esp_hp=false, esp_skel=false,
-    esp_color=Color3.fromRGB(255,60,60),
+    esp_color=Color3.fromRGB(255,255,255),
     esp_skel_color=Color3.fromRGB(255,255,255),
-    esp_max_dist=_DIST_VAL,
+    esp_max_dist=_DIST_DEF,
 
     aim=false, aim_active=false,
     aim_toggle=Enum.KeyCode.X,
     aim_hold=Enum.UserInputType.MouseButton2,
-    aim_fov=_FOV_VAL, aim_smooth=_SMOOTH_VAL,
+    aim_fov=_FOV_DEF,
+    aim_smooth=_SM_DEF,
     aim_target=_j("He","ad"),
     aim_teamcheck=false,
 
     gui_toggle=Enum.KeyCode.RightShift,
 }
 
--- ═══════════════════════════════════════════════════════════════════
---  STATE
--- ═══════════════════════════════════════════════════════════════════
-local _pool      = {}
-local _DESTROYED = false
-local _pulse_fns = {}
-local _gui_ref   = nil
-local _win_ref   = nil
-local _gui_vis   = true
-local _t         = 0
-local _jt        = 0
+-- ═══ STATE ════════════════════════════════════════════════════════
+local _pool={}
+local _DESTROYED=false
+local _pulse_fns={}
+local _gui_ref=nil
+local _win_ref=nil
+local _gui_vis=true
+local _t=0
+local _jt=0
 
--- fov circle (declarado antes de qualquer referência)
-local _fc = Drawing.new("Circle")
+-- fov circle — antes de qualquer ref
+local _fc=Drawing.new("Circle")
 _fc.Thickness=1; _fc.Radius=CFG.aim_fov
 _fc.Color=Color3.fromRGB(255,255,255)
 _fc.Filled=false; _fc.ZIndex=10; _fc.Visible=false
 
--- ═══════════════════════════════════════════════════════════════════
---  DRAWING POOL
--- ═══════════════════════════════════════════════════════════════════
-local function _nd(tp, props)
-    local d = Drawing.new(tp)
+-- ═══ DRAWING POOL ═════════════════════════════════════════════════
+local function _nd(tp,props)
+    local d=Drawing.new(tp)
     for k,v in pairs(props) do d[k]=v end
     table.insert(_pool,d); return d
 end
@@ -130,67 +93,61 @@ local function _clr()
     _pool={}
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  NEON HELPERS
--- ═══════════════════════════════════════════════════════════════════
-local NW  = Color3.fromRGB(255,255,255)
-local NC  = Color3.fromRGB(160,120,255)   -- accent roxo
-local NR  = Color3.fromRGB(255,30,30)
-local NG  = Color3.fromRGB(80,255,120)    -- verde ON
+-- ═══ NEON HELPERS ═════════════════════════════════════════════════
+local NW=Color3.fromRGB(255,255,255)
+local NR=Color3.fromRGB(255,30,30)
 
-local function _stroke(parent, color, thick, trans)
-    local s = Instance.new("UIStroke")
+local function _stroke(parent,color,thick,trans)
+    local s=Instance.new("UIStroke")
     s.Color=color; s.Thickness=thick or 1.5
     s.Transparency=trans or 0
     s.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
     s.Parent=parent; return s
 end
-local function _mk_pulse(stroke, base, amp, spd)
+local function _mk_pulse(stroke,base,amp,spd)
     return function(t)
         pcall(function()
             stroke.Transparency=base+math.abs(math.sin(t*spd))*amp
         end)
     end
 end
-local function _corner(p, r)
-    local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,r or 8); c.Parent=p
+local function _corner(p,r)
+    local c=Instance.new("UICorner")
+    c.CornerRadius=UDim.new(0,r or 6); c.Parent=p
+end
+local function _label(parent,text,size,color,xa,pos,sz,zi,bold)
+    local l=Instance.new("TextLabel")
+    l.BackgroundTransparency=1
+    l.Text=text; l.TextSize=size
+    l.TextColor3=color
+    l.Font=bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    l.TextXAlignment=xa or Enum.TextXAlignment.Left
+    if pos then l.Position=pos end
+    if sz  then l.Size=sz end
+    l.ZIndex=zi or 3; l.Parent=parent
+    return l
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  SKELETON DATA
---  pares de BoneName conectados por linhas
--- ═══════════════════════════════════════════════════════════════════
-local _BONES = {
+-- ═══ SKELETON DATA ════════════════════════════════════════════════
+local _BONES={
     {"Head","UpperTorso"},
     {"UpperTorso","LowerTorso"},
-    {"UpperTorso","LeftUpperArm"},
-    {"LeftUpperArm","LeftLowerArm"},
-    {"LeftLowerArm","LeftHand"},
-    {"UpperTorso","RightUpperArm"},
-    {"RightUpperArm","RightLowerArm"},
-    {"RightLowerArm","RightHand"},
-    {"LowerTorso","LeftUpperLeg"},
-    {"LeftUpperLeg","LeftLowerLeg"},
-    {"LeftLowerLeg","LeftFoot"},
-    {"LowerTorso","RightUpperLeg"},
-    {"RightUpperLeg","RightLowerLeg"},
-    {"RightLowerLeg","RightFoot"},
+    {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
+    {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
+    {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
+    {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
 }
--- fallback R6
-local _BONES_R6 = {
+local _BONES_R6={
     {"Head","Torso"},
-    {"Torso","Left Arm"},
-    {"Torso","Right Arm"},
-    {"Torso","Left Leg"},
-    {"Torso","Right Leg"},
+    {"Torso",_j("Le","ft"," ","Ar","m")},
+    {"Torso",_j("Ri","gh","t"," ","Ar","m")},
+    {"Torso",_j("Le","ft"," ","Le","g")},
+    {"Torso",_j("Ri","gh","t"," ","Le","g")},
 }
 
--- ═══════════════════════════════════════════════════════════════════
---  BUILD GUI
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ BUILD GUI ════════════════════════════════════════════════════
 local function _build_gui()
     _pulse_fns={}
-
     pcall(function() game:GetService(_svc[5]):FindFirstChild(_j("TC","_G")):Destroy() end)
     pcall(function() _lp.PlayerGui:FindFirstChild(_j("TC","_G")):Destroy() end)
 
@@ -207,165 +164,110 @@ local function _build_gui()
     if not ok then warn("[TC] parent falhou"); return end
     _gui_ref=gui
 
-    -- ── JANELA PRINCIPAL (maior: 280x520) ─────────────────────────────────────
+    -- ── JANELA: 300×500, quase quadrada ──────────────────────────
     local win=Instance.new("Frame")
     win.Name="Win"
-    win.Size=UDim2.new(0,280,0,520)
-    win.Position=UDim2.new(0,24,0.5,-260)
-    win.BackgroundColor3=Color3.fromRGB(10,10,16)
+    win.Size=UDim2.new(0,300,0,500)
+    win.Position=UDim2.new(0,24,0.5,-250)
+    win.BackgroundColor3=Color3.fromRGB(6,6,6)
     win.BorderSizePixel=0
     win.Active=true; win.Draggable=true
-    win.ClipsDescendants=true; win.Parent=gui
-    _corner(win,12)
+    win.ClipsDescendants=false; win.Parent=gui
+    _corner(win,8)
 
-    -- borda neon roxa pulsando
-    local ws=_stroke(win,NC,2,0)
-    table.insert(_pulse_fns,_mk_pulse(ws,0,0.3,0.9))
+    -- borda neon branca pulsando (dupla para glow efeito)
+    local ws1=_stroke(win,NW,2.5,0)
+    local ws2=_stroke(win,NW,5,0.6)
+    table.insert(_pulse_fns,_mk_pulse(ws1,0,0.15,1.1))
+    table.insert(_pulse_fns,_mk_pulse(ws2,0.4,0.4,1.1))
 
-    -- gradiente de fundo sutil
-    local bg_grad=Instance.new("UIGradient")
-    bg_grad.Color=ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(14,10,24)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(8,8,14)),
-    })
-    bg_grad.Rotation=135; bg_grad.Parent=win
-
-    -- ── HEADER ────────────────────────────────────────────────────────────────
+    -- ── HEADER ───────────────────────────────────────────────────
     local hdr=Instance.new("Frame")
-    hdr.Size=UDim2.new(1,0,0,70)
-    hdr.Position=UDim2.new(0,0,0,0)
-    hdr.BackgroundColor3=Color3.fromRGB(14,10,24)
+    hdr.Size=UDim2.new(1,0,0,52)
+    hdr.BackgroundColor3=Color3.fromRGB(14,14,14)
     hdr.BorderSizePixel=0; hdr.ZIndex=2; hdr.Parent=win
-    _corner(hdr,12)
+    _corner(hdr,8)
 
-    -- linha decorativa no topo do header
-    local hline=Instance.new("Frame")
-    hline.Size=UDim2.new(1,0,0,2)
-    hline.Position=UDim2.new(0,0,0,0)
-    hline.BackgroundColor3=NC
-    hline.BorderSizePixel=0; hline.ZIndex=3; hline.Parent=hdr
-    local hls=_stroke(hline,NC,0,0)
-    table.insert(_pulse_fns,_mk_pulse(Instance.new("UIStroke",hline),NC,0,0))
+    -- linha topo do header — neon branca
+    local htop=Instance.new("Frame")
+    htop.Size=UDim2.new(1,0,0,2)
+    htop.BackgroundColor3=NW
+    htop.BorderSizePixel=0; htop.ZIndex=4; htop.Parent=hdr
+    local hts=_stroke(htop,NW,3,0.3)
+    table.insert(_pulse_fns,_mk_pulse(hts,0.1,0.5,1.4))
 
-    -- imagem no header (lado esquerdo)
-    local img=Instance.new("ImageLabel")
-    img.Size=UDim2.new(0,56,0,56)
-    img.Position=UDim2.new(0,10,0.5,-28)
-    img.BackgroundTransparency=1
-    img.Image="rbxassetid://113175072724158"
-    img.ScaleType=Enum.ScaleType.Fit
-    img.ZIndex=3; img.Parent=hdr
-    _corner(img,6)
+    _label(hdr,"TONY COUNTRY",17,NW,
+        Enum.TextXAlignment.Center,
+        UDim2.new(0,0,0,8),UDim2.new(1,0,0,26),3,true)
+    _label(hdr,"✦  ESP  ·  AIMBOT  ·  SKELETON  ✦",9,
+        Color3.fromRGB(160,160,160),
+        Enum.TextXAlignment.Center,
+        UDim2.new(0,0,0,32),UDim2.new(1,0,0,16),3,false)
 
-    -- título e subtítulo
-    local ttl=Instance.new("TextLabel")
-    ttl.Size=UDim2.new(1,-80,0,30)
-    ttl.Position=UDim2.new(0,76,0,10)
-    ttl.BackgroundTransparency=1
-    ttl.Text="TONY COUNTRY"
-    ttl.TextColor3=Color3.fromRGB(240,230,255)
-    ttl.TextSize=18; ttl.Font=Enum.Font.GothamBold
-    ttl.TextXAlignment=Enum.TextXAlignment.Left
-    ttl.ZIndex=3; ttl.Parent=hdr
-    _stroke(ttl,NC,1,0.2)
-
-    local sub=Instance.new("TextLabel")
-    sub.Size=UDim2.new(1,-80,0,20)
-    sub.Position=UDim2.new(0,76,0,38)
-    sub.BackgroundTransparency=1
-    sub.Text="external cheat"
-    sub.TextColor3=Color3.fromRGB(120,100,180)
-    sub.TextSize=10; sub.Font=Enum.Font.Gotham
-    sub.TextXAlignment=Enum.TextXAlignment.Left
-    sub.ZIndex=3; sub.Parent=hdr
-
-    -- linha separadora abaixo do header
+    -- separador
     local sep=Instance.new("Frame")
     sep.Size=UDim2.new(1,-20,0,1)
-    sep.Position=UDim2.new(0,10,0,72)
-    sep.BackgroundColor3=NC
-    sep.BackgroundTransparency=0.5
+    sep.Position=UDim2.new(0,10,0,54)
+    sep.BackgroundColor3=NW
+    sep.BackgroundTransparency=0.6
     sep.BorderSizePixel=0; sep.ZIndex=2; sep.Parent=win
 
-    -- ── SEÇÃO LABEL ───────────────────────────────────────────────────────────
-    local function _sec(label, y)
+    -- ── SECTION LABEL ────────────────────────────────────────────
+    local function _sec(text,y)
         local f=Instance.new("Frame")
-        f.Size=UDim2.new(1,-20,0,22)
+        f.Size=UDim2.new(1,-20,0,20)
         f.Position=UDim2.new(0,10,0,y)
-        f.BackgroundColor3=Color3.fromRGB(20,14,36)
+        f.BackgroundColor3=Color3.fromRGB(18,18,18)
         f.BorderSizePixel=0; f.ZIndex=2; f.Parent=win
-        _corner(f,5)
-        _stroke(f,NC,1,0.5)
-        local l=Instance.new("TextLabel")
-        l.Size=UDim2.new(1,0,1,0)
-        l.BackgroundTransparency=1
-        l.Text="  "..label
-        l.TextColor3=NC
-        l.TextSize=11; l.Font=Enum.Font.GothamBold
-        l.TextXAlignment=Enum.TextXAlignment.Left
-        l.ZIndex=3; l.Parent=f
+        _corner(f,4)
+        _stroke(f,NW,1,0.5)
+        _label(f,"  "..text,10,NW,
+            Enum.TextXAlignment.Left,
+            UDim2.new(0,0,0,0),UDim2.new(1,0,1,0),3,true)
     end
 
-    -- ── TOGGLE ROW ────────────────────────────────────────────────────────────
-    local function _row(label, state, y, cb)
+    -- ── TOGGLE ROW ───────────────────────────────────────────────
+    local function _row(text,state,y,cb)
         local row=Instance.new("Frame")
-        row.Size=UDim2.new(1,-20,0,30)
+        row.Size=UDim2.new(1,-20,0,28)
         row.Position=UDim2.new(0,10,0,y)
-        row.BackgroundColor3=Color3.fromRGB(16,14,22)
+        row.BackgroundColor3=Color3.fromRGB(12,12,12)
         row.BorderSizePixel=0; row.ZIndex=2; row.Parent=win
-        _corner(row,7)
-        local rs=_stroke(row,NG,1,1)
+        _corner(row,6)
+        local rs=_stroke(row,NW,1,1)
 
-        local lbl=Instance.new("TextLabel")
-        lbl.Size=UDim2.new(0.65,0,1,0)
-        lbl.Position=UDim2.new(0,12,0,0)
-        lbl.BackgroundTransparency=1
-        lbl.Text=label
-        lbl.TextColor3=Color3.fromRGB(200,195,220)
-        lbl.TextSize=12; lbl.Font=Enum.Font.Gotham
-        lbl.TextXAlignment=Enum.TextXAlignment.Left
-        lbl.ZIndex=3; lbl.Parent=row
-
-        -- indicador colorido esquerda
-        local dot=Instance.new("Frame")
-        dot.Size=UDim2.new(0,4,0,16)
-        dot.Position=UDim2.new(0,4,0.5,-8)
-        dot.BackgroundColor3=Color3.fromRGB(60,60,70)
-        dot.BorderSizePixel=0; dot.ZIndex=3; dot.Parent=row
-        _corner(dot,2)
+        _label(row,text,11,Color3.fromRGB(210,210,210),
+            Enum.TextXAlignment.Left,
+            UDim2.new(0,10,0,0),UDim2.new(0.65,0,1,0),3,false)
 
         local btn=Instance.new("TextButton")
-        btn.Size=UDim2.new(0,52,0,22)
-        btn.Position=UDim2.new(1,-58,0.5,-11)
-        btn.BackgroundColor3=Color3.fromRGB(30,28,40)
+        btn.Size=UDim2.new(0,52,0,20)
+        btn.Position=UDim2.new(1,-58,0.5,-10)
+        btn.BackgroundColor3=Color3.fromRGB(20,20,20)
         btn.Text="OFF"
-        btn.TextColor3=Color3.fromRGB(120,110,140)
+        btn.TextColor3=Color3.fromRGB(100,100,100)
         btn.TextSize=11; btn.Font=Enum.Font.GothamBold
         btn.BorderSizePixel=0; btn.ZIndex=3; btn.Parent=row
-        _corner(btn,6)
-        local bs=_stroke(btn,NG,1.2,1)
+        _corner(btn,5)
+        local bs=_stroke(btn,NW,1.5,1)
 
-        local _st=state
-        local _pf=nil
-
-        local function _refresh()
+        local _st=state; local _pf=nil
+        local function _ref()
             if _st then
-                btn.BackgroundColor3=Color3.fromRGB(20,40,28)
-                btn.TextColor3=NG; btn.Text="ON"
+                btn.BackgroundColor3=Color3.fromRGB(240,240,240)
+                btn.TextColor3=Color3.fromRGB(0,0,0); btn.Text="ON"
                 bs.Transparency=0; rs.Transparency=0
-                dot.BackgroundColor3=NG
                 if _pf then
                     for i,fn in ipairs(_pulse_fns) do
                         if fn==_pf then table.remove(_pulse_fns,i); break end
                     end
                 end
-                _pf=_mk_pulse(bs,0,0.5,2.2)
+                _pf=_mk_pulse(bs,0,0.4,2.4)
                 table.insert(_pulse_fns,_pf)
             else
-                btn.BackgroundColor3=Color3.fromRGB(30,28,40)
-                btn.TextColor3=Color3.fromRGB(120,110,140); btn.Text="OFF"
+                btn.BackgroundColor3=Color3.fromRGB(20,20,20)
+                btn.TextColor3=Color3.fromRGB(100,100,100); btn.Text="OFF"
                 bs.Transparency=1; rs.Transparency=1
-                dot.BackgroundColor3=Color3.fromRGB(60,60,70)
                 if _pf then
                     for i,fn in ipairs(_pulse_fns) do
                         if fn==_pf then table.remove(_pulse_fns,i); break end
@@ -374,60 +276,127 @@ local function _build_gui()
                 end
             end
         end
-        _refresh()
+        _ref()
+        btn.MouseButton1Click:Connect(function() _st=not _st; cb(_st); _ref() end)
+    end
 
-        btn.MouseButton1Click:Connect(function()
-            _st=not _st; cb(_st); _refresh()
+    -- ── FOV SLIDER ───────────────────────────────────────────────
+    local function _fov_slider(y)
+        local frame=Instance.new("Frame")
+        frame.Size=UDim2.new(1,-20,0,44)
+        frame.Position=UDim2.new(0,10,0,y)
+        frame.BackgroundColor3=Color3.fromRGB(12,12,12)
+        frame.BorderSizePixel=0; frame.ZIndex=2; frame.Parent=win
+        _corner(frame,6)
+        _stroke(frame,NW,1,0.6)
+
+        _label(frame,"  FOV",11,Color3.fromRGB(210,210,210),
+            Enum.TextXAlignment.Left,
+            UDim2.new(0,0,0,2),UDim2.new(0.4,0,0,18),3,false)
+
+        local val_lbl=Instance.new("TextLabel")
+        val_lbl.Size=UDim2.new(0.3,0,0,18)
+        val_lbl.Position=UDim2.new(0.7,0,0,2)
+        val_lbl.BackgroundTransparency=1
+        val_lbl.Text=tostring(CFG.aim_fov)
+        val_lbl.TextColor3=NW
+        val_lbl.TextSize=11; val_lbl.Font=Enum.Font.GothamBold
+        val_lbl.TextXAlignment=Enum.TextXAlignment.Right
+        val_lbl.ZIndex=3; val_lbl.Parent=frame
+
+        -- track
+        local track=Instance.new("Frame")
+        track.Size=UDim2.new(1,-16,0,4)
+        track.Position=UDim2.new(0,8,0,30)
+        track.BackgroundColor3=Color3.fromRGB(40,40,40)
+        track.BorderSizePixel=0; track.ZIndex=3; track.Parent=frame
+        _corner(track,2)
+
+        -- fill
+        local fill=Instance.new("Frame")
+        fill.Size=UDim2.new(CFG.aim_fov/500,0,1,0)
+        fill.BackgroundColor3=NW
+        fill.BorderSizePixel=0; fill.ZIndex=4; fill.Parent=track
+        _corner(fill,2)
+        local fs=_stroke(fill,NW,2,0.3)
+        table.insert(_pulse_fns,_mk_pulse(fs,0.1,0.4,1.5))
+
+        -- handle (clicável)
+        local handle=Instance.new("TextButton")
+        handle.Size=UDim2.new(0,12,0,12)
+        handle.Position=UDim2.new(CFG.aim_fov/500,0,0.5,-6)
+        handle.BackgroundColor3=NW
+        handle.Text=""; handle.BorderSizePixel=0
+        handle.ZIndex=5; handle.Parent=track
+        _corner(handle,6)
+        _stroke(handle,NW,2,0)
+
+        -- drag logic
+        local dragging=false
+        handle.MouseButton1Down:Connect(function() dragging=true end)
+        _UIS.InputEnded:Connect(function(i)
+            if i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
+        end)
+        _UIS.InputChanged:Connect(function(i)
+            if not dragging then return end
+            if i.UserInputType~=Enum.UserInputType.MouseMovement then return end
+            local track_pos=track.AbsolutePosition
+            local track_sz=track.AbsoluteSize
+            local rel=math.clamp((i.Position.X-track_pos.X)/track_sz.X,0,1)
+            local new_fov=math.floor(rel*500)
+            new_fov=math.max(new_fov,10)
+            CFG.aim_fov=new_fov
+            _fc.Radius=new_fov
+            val_lbl.Text=tostring(new_fov)
+            fill.Size=UDim2.new(rel,0,1,0)
+            handle.Position=UDim2.new(rel,0,0.5,-6)
         end)
     end
 
-    -- ── LAYOUT ────────────────────────────────────────────────────────────────
-    local Y=82
+    -- ── LAYOUT ───────────────────────────────────────────────────
+    local Y=60
 
-    _sec("[ ESP ]", Y); Y=Y+26
-    local esp_rows={
-        {"  ESP Master",   CFG.esp,      function(v) CFG.esp=v end},
-        {"  Box",          CFG.esp_box,  function(v) CFG.esp_box=v end},
-        {"  Nome",         CFG.esp_name, function(v) CFG.esp_name=v end},
-        {"  Distância",    CFG.esp_dist, function(v) CFG.esp_dist=v end},
-        {"  HP Bar",       CFG.esp_hp,   function(v) CFG.esp_hp=v end},
-        {"  Skeleton ESP", CFG.esp_skel, function(v) CFG.esp_skel=v end},
-    }
-    for _,r in ipairs(esp_rows) do _row(r[1],r[2],Y,r[3]); Y=Y+34 end
+    _sec("ESP",Y); Y=Y+24
+    _row("  ESP Master",   CFG.esp,      Y, function(v) CFG.esp=v end);       Y=Y+32
+    _row("  Box (corner)", CFG.esp_box,  Y, function(v) CFG.esp_box=v end);   Y=Y+32
+    _row("  Nome",         CFG.esp_name, Y, function(v) CFG.esp_name=v end);  Y=Y+32
+    _row("  Distância",    CFG.esp_dist, Y, function(v) CFG.esp_dist=v end);  Y=Y+32
+    _row("  HP Bar",       CFG.esp_hp,   Y, function(v) CFG.esp_hp=v end);    Y=Y+32
+    _row("  Skeleton",     CFG.esp_skel, Y, function(v) CFG.esp_skel=v end);  Y=Y+36
 
-    Y=Y+6
-    _sec("[ AIMBOT ]", Y); Y=Y+26
-    local aim_rows={
-        {"  Aimbot Master",  CFG.aim,            function(v) CFG.aim=v end},
-        {"  Team Check",     CFG.aim_teamcheck,  function(v) CFG.aim_teamcheck=v end},
-    }
-    for _,r in ipairs(aim_rows) do _row(r[1],r[2],Y,r[3]); Y=Y+34 end
+    _sec("AIMBOT",Y); Y=Y+24
+    _row("  Aimbot Master",  CFG.aim,            Y, function(v) CFG.aim=v end);           Y=Y+32
+    _row("  Team Check",     CFG.aim_teamcheck,  Y, function(v) CFG.aim_teamcheck=v end); Y=Y+36
 
-    -- ── KEYBIND INFO ──────────────────────────────────────────────────────────
-    Y=Y+10
-    local kb=Instance.new("TextLabel")
-    kb.Size=UDim2.new(1,-20,0,16)
-    kb.Position=UDim2.new(0,10,0,Y)
-    kb.BackgroundTransparency=1
-    kb.Text="X = toggle aim  ·  RMB (hold) = aim"
-    kb.TextColor3=Color3.fromRGB(80,70,110)
-    kb.TextSize=9; kb.Font=Enum.Font.Gotham
-    kb.TextXAlignment=Enum.TextXAlignment.Center
-    kb.ZIndex=3; kb.Parent=win
+    _sec("FOV CONTROL",Y); Y=Y+24
+    _fov_slider(Y); Y=Y+52
 
-    -- ── DESTRUCT ──────────────────────────────────────────────────────────────
+    -- info
+    local info=Instance.new("TextLabel")
+    info.Size=UDim2.new(1,-20,0,14)
+    info.Position=UDim2.new(0,10,0,Y)
+    info.BackgroundTransparency=1
+    info.Text="X = toggle aim  ·  RMB (hold) = aim  ·  RShift = hide"
+    info.TextColor3=Color3.fromRGB(70,70,70)
+    info.TextSize=9; info.Font=Enum.Font.Gotham
+    info.TextXAlignment=Enum.TextXAlignment.Center
+    info.ZIndex=3; info.Parent=win
+    Y=Y+20
+
+    -- DESTRUCT
     local db=Instance.new("TextButton")
-    db.Size=UDim2.new(1,-20,0,32)
-    db.Position=UDim2.new(0,10,1,-40)
-    db.BackgroundColor3=Color3.fromRGB(22,6,6)
+    db.Size=UDim2.new(1,-20,0,30)
+    db.Position=UDim2.new(0,10,0,Y)
+    db.BackgroundColor3=Color3.fromRGB(18,4,4)
     db.Text="✖  DESTRUCT"
     db.TextColor3=NR
     db.TextSize=13; db.Font=Enum.Font.GothamBold
     db.BorderSizePixel=0; db.ZIndex=3; db.Parent=win
-    _corner(db,8)
-    local ds=_stroke(db,NR,1.5,0)
+    _corner(db,6)
+    local ds=_stroke(db,NR,2,0)
     table.insert(_pulse_fns,_mk_pulse(ds,0,0.6,1.6))
-
+    db.MouseEnter:Connect(function() db.BackgroundColor3=Color3.fromRGB(44,8,8) end)
+    db.MouseLeave:Connect(function() db.BackgroundColor3=Color3.fromRGB(18,4,4) end)
     db.MouseButton1Click:Connect(function()
         _DESTROYED=true
         _clr()
@@ -435,20 +404,13 @@ local function _build_gui()
         pcall(function() _gui_ref:Destroy() end)
     end)
 
-    -- hover effect no DESTRUCT
-    db.MouseEnter:Connect(function()
-        db.BackgroundColor3=Color3.fromRGB(50,10,10)
-    end)
-    db.MouseLeave:Connect(function()
-        db.BackgroundColor3=Color3.fromRGB(22,6,6)
-    end)
+    -- ajusta altura da janela ao conteúdo
+    win.Size=UDim2.new(0,300,0,Y+44)
 
     _win_ref=win
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  UTILS
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ UTILS ════════════════════════════════════════════════════════
 local function _alive(char)
     local h=char and char:FindFirstChildOfClass("Humanoid")
     return h and h.Health>0
@@ -487,36 +449,45 @@ local function _bbox(char)
     return mnx,mny,mxx-mnx,mxy-mny
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  SKELETON ESP
--- ═══════════════════════════════════════════════════════════════════
-local function _draw_skeleton(char, col)
-    -- tenta R15 primeiro, fallback R6
-    local bones = _BONES
-    local r15 = char:FindFirstChild("UpperTorso") ~= nil
-    if not r15 then bones = _BONES_R6 end
+-- ═══ SKELETON ═════════════════════════════════════════════════════
+local function _draw_skel(char)
+    local r15=char:FindFirstChild("UpperTorso")~=nil
+    local bones=r15 and _BONES or _BONES_R6
+    local col=CFG.esp_skel_color
 
-    for _, pair in ipairs(bones) do
-        local a = char:FindFirstChild(pair[1])
-        local b = char:FindFirstChild(pair[2])
-        if a and b then
-            local spa, inva, da = _w2s(a.Position)
-            local spb, invb, db2 = _w2s(b.Position)
-            if inva and invb and da>0 and db2>0 then
-                _nd("Line",{
-                    From=spa, To=spb,
-                    Color=col, Thickness=1,
-                    Visible=true, ZIndex=2,
-                    Transparency=0.2,
-                })
-            end
-        end
+    for _,pair in ipairs(bones) do
+        local a=char:FindFirstChild(pair[1])
+        local b=char:FindFirstChild(pair[2])
+        if not (a and b) then continue end
+        local spa,inva,da=_w2s(a.Position)
+        local spb,invb,db2=_w2s(b.Position)
+        if not (inva and invb and da>0 and db2>0) then continue end
+
+        -- linha principal — grossa e branca
+        _nd("Line",{From=spa,To=spb,
+            Color=col,Thickness=_SK_THICK,
+            Transparency=0,Visible=true,ZIndex=4})
+
+        -- contorno escuro (outline) — dá nitidez ao skeleton
+        _nd("Line",{From=spa,To=spb,
+            Color=Color3.fromRGB(0,0,0),Thickness=_SK_THICK+2,
+            Transparency=0.6,Visible=true,ZIndex=3})
+
+        -- joint dot em cada ponta
+        _nd("Circle",{
+            Position=spa,Radius=2.5,
+            Color=col,Filled=true,
+            Thickness=1,Transparency=0,
+            Visible=true,ZIndex=5})
+        _nd("Circle",{
+            Position=spb,Radius=2.5,
+            Color=col,Filled=true,
+            Thickness=1,Transparency=0,
+            Visible=true,ZIndex=5})
     end
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  ESP
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ ESP ══════════════════════════════════════════════════════════
 local function _esp()
     _clr()
     if not CFG.esp then return end
@@ -532,51 +503,46 @@ local function _esp()
         if not inv or depth<=0 then continue end
         local bx,by,bw,bh=_bbox(char)
 
-        -- distância-based alpha (mais longe = mais transparente)
-        local alpha=math.clamp(1-(dist/CFG.esp_max_dist),0.3,1)
-
-        if CFG.esp_skel then
-            _draw_skeleton(char, CFG.esp_skel_color)
-        end
+        if CFG.esp_skel then _draw_skel(char) end
 
         if CFG.esp_box and bx then
-            -- corner-box (mais estilizado que box sólida)
-            local clen=math.min(bw,bh)*0.25
-            local corners={
-                -- top-left
-                {{Vector2.new(bx,by),Vector2.new(bx+clen,by)},
-                 {Vector2.new(bx,by),Vector2.new(bx,by+clen)}},
-                -- top-right
-                {{Vector2.new(bx+bw,by),Vector2.new(bx+bw-clen,by)},
-                 {Vector2.new(bx+bw,by),Vector2.new(bx+bw,by+clen)}},
-                -- bottom-left
-                {{Vector2.new(bx,by+bh),Vector2.new(bx+clen,by+bh)},
-                 {Vector2.new(bx,by+bh),Vector2.new(bx,by+bh-clen)}},
-                -- bottom-right
-                {{Vector2.new(bx+bw,by+bh),Vector2.new(bx+bw-clen,by+bh)},
-                 {Vector2.new(bx+bw,by+bh),Vector2.new(bx+bw,by+bh-clen)}},
-            }
-            for _,corner in ipairs(corners) do
-                for _,seg in ipairs(corner) do
-                    _nd("Line",{From=seg[1],To=seg[2],
-                        Color=CFG.esp_color,Thickness=1.5,
-                        Transparency=1-alpha,Visible=true,ZIndex=3})
-                end
+            local clen=math.min(bw,bh)*0.22
+            for _,c in ipairs({
+                {{bx,by},{bx+clen,by}},         {{bx,by},{bx,by+clen}},
+                {{bx+bw,by},{bx+bw-clen,by}},   {{bx+bw,by},{bx+bw,by+clen}},
+                {{bx,by+bh},{bx+clen,by+bh}},   {{bx,by+bh},{bx,by+bh-clen}},
+                {{bx+bw,by+bh},{bx+bw-clen,by+bh}},{{bx+bw,by+bh},{bx+bw,by+bh-clen}},
+            }) do
+                -- outline preto primeiro (nitidez)
+                _nd("Line",{From=Vector2.new(c[1][1],c[1][2]),
+                    To=Vector2.new(c[2][1],c[2][2]),
+                    Color=Color3.new(0,0,0),Thickness=3.5,
+                    Transparency=0.5,Visible=true,ZIndex=2})
+                -- linha branca por cima
+                _nd("Line",{From=Vector2.new(c[1][1],c[1][2]),
+                    To=Vector2.new(c[2][1],c[2][2]),
+                    Color=CFG.esp_color,Thickness=1.8,
+                    Transparency=0,Visible=true,ZIndex=3})
             end
         end
 
         if CFG.esp_name and bx then
+            -- sombra
             _nd("Text",{Text=p.Name,
-                Position=Vector2.new(bx+bw/2,by-15),
-                Size=13,Color=Color3.new(1,1,1),
-                Outline=true,Center=true,Visible=true,ZIndex=4})
+                Position=Vector2.new(bx+bw/2+1,by-13),
+                Size=13,Color=Color3.new(0,0,0),
+                Outline=false,Center=true,Visible=true,ZIndex=3})
+            _nd("Text",{Text=p.Name,
+                Position=Vector2.new(bx+bw/2,by-14),
+                Size=13,Color=NW,
+                Outline=false,Center=true,Visible=true,ZIndex=4})
         end
 
         if CFG.esp_dist and bx then
             _nd("Text",{
                 Text=("%.0fm"):format(dist),
                 Position=Vector2.new(bx+bw/2,by+bh+3),
-                Size=11,Color=Color3.fromRGB(180,180,200),
+                Size=11,Color=Color3.fromRGB(200,200,200),
                 Outline=true,Center=true,Visible=true,ZIndex=4})
         end
 
@@ -584,22 +550,20 @@ local function _esp()
             local h=char:FindFirstChildOfClass("Humanoid")
             if h then
                 local r=math.clamp(h.Health/h.MaxHealth,0,1)
-                local bx2=bx-7
+                local bx2=bx-8
                 _nd("Line",{From=Vector2.new(bx2,by),To=Vector2.new(bx2,by+bh),
-                    Color=Color3.new(0,0,0),Thickness=4,Visible=true,ZIndex=2})
+                    Color=Color3.new(0,0,0),Thickness=5,Visible=true,ZIndex=2})
                 _nd("Line",{
                     From=Vector2.new(bx2,by+bh),
                     To=Vector2.new(bx2,by+bh-(bh*r)),
                     Color=Color3.fromRGB(math.floor(255*(1-r)),math.floor(255*r),40),
-                    Thickness=2.5,Visible=true,ZIndex=3})
+                    Thickness=3,Visible=true,ZIndex=3})
             end
         end
     end
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  AIMBOT
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ AIMBOT ═══════════════════════════════════════════════════════
 local function _closest()
     local center=_cam.ViewportSize/2
     local best,bd=nil,CFG.aim_fov
@@ -616,7 +580,6 @@ local function _closest()
     end
     return best
 end
-
 local function _aimbot(dt)
     if not CFG.aim or not CFG.aim_active then return end
     if not _UIS:IsMouseButtonPressed(CFG.aim_hold) then return end
@@ -625,8 +588,7 @@ local function _aimbot(dt)
     local part=char:FindFirstChild(CFG.aim_target); if not part then return end
     _jt=_jt+dt*(3+math.random()*2)
     local jp=part.Position+Vector3.new(
-        math.sin(_jt*1.3)*0.015,
-        math.cos(_jt*0.9)*0.012,0)
+        math.sin(_jt*1.3)*0.015,math.cos(_jt*0.9)*0.012,0)
     local cur=_cam.CFrame
     local tgt=CFrame.new(cur.Position,jp)
     local ad=math.acos(math.clamp(cur.LookVector:Dot(tgt.LookVector),-1,1))
@@ -634,9 +596,7 @@ local function _aimbot(dt)
     _cam.CFrame=cur:Lerp(tgt,math.clamp(sm,0.05,0.9))
 end
 
--- ═══════════════════════════════════════════════════════════════════
---  INIT + LOOP
--- ═══════════════════════════════════════════════════════════════════
+-- ═══ INIT ═════════════════════════════════════════════════════════
 _build_gui()
 
 _UIS.InputBegan:Connect(function(input,gpe)
