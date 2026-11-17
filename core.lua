@@ -38,7 +38,7 @@
     bg_img.Size                 = UDim2.new(1, 0, 0, 110)
     bg_img.Position             = UDim2.new(0, 0, 0, 0)
     bg_img.BackgroundTransparency = 1
-    bg_img.Image                = "rbxassetid://FILL_ID_AQUI"
+    bg_img.Image                = "rbxassetid://74387664833992"
     bg_img.ImageTransparency    = 0.15   -- leve transparência pra não cobrir o título
     bg_img.ScaleType            = Enum.ScaleType.Fit
     bg_img.ZIndex               = 0
@@ -72,7 +72,7 @@
     local title = Instance.new("TextLabel")
     title.Size                 = UDim2.new(1, 0, 1, 0)
     title.BackgroundTransparency = 1
-    title.Text                 = "✦ TONY COUNTRY  [RShift = hide]"
+    title.Text                 = "☯︎TONY COUNTRY☯︎"
     title.TextColor3           = Color3.fromRGB(220, 220, 240)
     title.TextSize             = 13
     title.Font                 = Enum.Font.GothamBold
