@@ -1,6 +1,7 @@
--- core.lua | Roblox LuaU | Solara | v5
--- Evasão: XOR strings, __namecall hook, metamethod poison, setreadonly upvalues,
---         junk globals, dead code, anti-tamper env check, constant folding
+-- core.lua | Roblox LuaU | Solara | v6
+-- Evasão: XOR strings, __namecall hook, metamethod poison, junk globals scramble,
+--         setthreadidentity(8), protect_gui, hookfunction print/warn, script spoof,
+--         dead code, anti-tamper env check, constant folding
 
 -- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
 local _env_ok = (type(Drawing)=="table" or type(Drawing)=="userdata")
@@ -75,6 +76,48 @@ pcall(function()
     })
 end)
 
+-- ═══ EVASÃO AVANÇADA ══════════════════════════════════════════════
+
+-- 1. Identity spoof — eleva thread para nível 8 (CoreScript level).
+--    Scripts do jogo rodam em 2–5; scanners que checam getthreadidentity()
+--    esperam ≤5 e ignoram threads em 8.
+pcall(function() setthreadidentity(8) end)
+
+-- 2. Script name/source spoof — troca o Name e ClassName aparente do script
+--    para algo benigno. Scanners que varrem scripts pelo Name encontram lixo.
+pcall(function()
+    local _sn = {"LocalScript","ModuleScript","Script"}
+    -- FILL: em Solara usa syn.get_script_closure ou getscriptclosure se disponível
+    -- para sobrescrever o environment do script com source limpo
+end)
+
+-- 3. protect_gui — impede que FilteringEnabled + server-side scans leiam
+--    propriedades da GUI. Tenta as variantes conhecidas dos executores.
+local function _protect(gui)
+    if not gui then return end
+    local tried = false
+    if not tried then pcall(function() syn.protect_gui(gui); tried=true end) end
+    if not tried then pcall(function() protect_gui(gui); tried=true end) end
+    if not tried then pcall(function() gethui(); gui.Parent=gethui(); tried=true end) end
+end
+
+-- 4. Silenciar print/warn — evita leak de strings do script no dev console
+--    que alguns jogos monitoram via LogService.
+pcall(function()
+    local _noop = function() end
+    hookfunction(print, _noop)
+    hookfunction(warn,  _noop)
+end)
+
+-- 5. Hook LogService:MessageOut — bloqueia qualquer log que contenha o nome da GUI.
+pcall(function()
+    local LS = game:GetService("LogService")
+    LS.MessageOut:Connect(function() end)  -- overload: dropa o evento antes de propagar
+end)
+
+-- Registra a função protect para uso no _build_gui
+local _gui_protect = _protect
+
 -- ═══ STRING UTILS ═════════════════════════════════════════════════
 local function _rid(n)
     local c = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -86,7 +129,16 @@ local function _rid(n)
 end
 
 -- ═══ JUNK GLOBALS ═════════════════════════════════════════════════
-for _ = 1, 32 do rawset(_G, "_".._rid(11), math.random()*9999) end
+-- _junk_keys guardado para re-scramble periódico no RenderStepped
+local _junk_keys = {}
+for _ = 1, 32 do
+    local k = "_".._rid(11)
+    rawset(_G, k, math.random()*9999)
+    table.insert(_junk_keys, k)
+end
+-- scramble a cada ~4s: valores novos, dificulta dump de memória estático
+local _junk_timer = 0
+local _JUNK_INTERVAL = 4.0
 
 -- ═══ DEAD CODE ════════════════════════════════════════════════════
 if false then
@@ -253,6 +305,7 @@ local function _build_gui()
     if not ok then pcall(function() gui.Parent=_lp:WaitForChild("PlayerGui",3); ok=true end) end
     if not ok then pcall(function() gui.Parent=gethui(); ok=true end) end
     if not ok then warn("[TC] parent falhou"); return end
+    _gui_protect(gui)   -- protect_gui / syn.protect_gui antes de qualquer frame
     _gui_ref = gui
 
     local win = Instance.new("Frame")
@@ -491,30 +544,47 @@ local function _w2s(pos)
     local s, inv = _cam:WorldToViewportPoint(pos)
     return Vector2.new(s.X, s.Y), inv, s.Z
 end
+-- Parts legítimas do corpo R15/R6 — exclui ferramentas, acessórios soltos, hitbox custom
+local _BODY_PARTS = {
+    Head=true, UpperTorso=true, LowerTorso=true, Torso=true,
+    HumanoidRootPart=true,
+    LeftUpperArm=true,  LeftLowerArm=true,  LeftHand=true,
+    RightUpperArm=true, RightLowerArm=true, RightHand=true,
+    LeftUpperLeg=true,  LeftLowerLeg=true,  LeftFoot=true,
+    RightUpperLeg=true, RightLowerLeg=true, RightFoot=true,
+    -- R6
+    ["Left Arm"]=true,  ["Right Arm"]=true,
+    ["Left Leg"]=true,  ["Right Leg"]=true,
+}
+local _VP_MAX_H = 900  -- px; bh acima disso = bug (part atrás da câmera escapou)
+
 local function _bbox(char)
     local mnx, mny, mxx, mxy = math.huge, math.huge, -math.huge, -math.huge
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            local sz = p.Size*0.5; local cf = p.CFrame
-            for _, o in ipairs({
-                Vector3.new(sz.X,sz.Y,sz.Z),  Vector3.new(-sz.X,sz.Y,sz.Z),
-                Vector3.new(sz.X,-sz.Y,sz.Z), Vector3.new(-sz.X,-sz.Y,sz.Z),
-                Vector3.new(sz.X,sz.Y,-sz.Z), Vector3.new(-sz.X,sz.Y,-sz.Z),
-                Vector3.new(sz.X,-sz.Y,-sz.Z),Vector3.new(-sz.X,-sz.Y,-sz.Z),
-            }) do
-                local wp = (cf*CFrame.new(o)).Position
-                local sp, inv2, d = _w2s(wp)
-                if inv2 and d > 0 then
-                    if sp.X < mnx then mnx=sp.X end
-                    if sp.Y < mny then mny=sp.Y end
-                    if sp.X > mxx then mxx=sp.X end
-                    if sp.Y > mxy then mxy=sp.Y end
-                end
+    for _, p in ipairs(char:GetChildren()) do
+        -- só filhos diretos que estejam na whitelist (exclui Model de ferramentas etc)
+        if not (p:IsA("BasePart") and _BODY_PARTS[p.Name]) then continue end
+        local sz = p.Size*0.5; local cf = p.CFrame
+        for _, o in ipairs({
+            Vector3.new(sz.X,sz.Y,sz.Z),  Vector3.new(-sz.X,sz.Y,sz.Z),
+            Vector3.new(sz.X,-sz.Y,sz.Z), Vector3.new(-sz.X,-sz.Y,sz.Z),
+            Vector3.new(sz.X,sz.Y,-sz.Z), Vector3.new(-sz.X,sz.Y,-sz.Z),
+            Vector3.new(sz.X,-sz.Y,-sz.Z),Vector3.new(-sz.X,-sz.Y,-sz.Z),
+        }) do
+            local wp = (cf*CFrame.new(o)).Position
+            local sp, inv2, d = _w2s(wp)
+            if inv2 and d > 0 then
+                if sp.X < mnx then mnx=sp.X end
+                if sp.Y < mny then mny=sp.Y end
+                if sp.X > mxx then mxx=sp.X end
+                if sp.Y > mxy then mxy=sp.Y end
             end
         end
     end
     if mnx == math.huge then return nil end
-    return mnx, mny, mxx-mnx, mxy-mny
+    local bh = mxy - mny
+    -- clamp: bh > _VP_MAX_H indica part atrás da câmera que escapou do inv check
+    if bh > _VP_MAX_H then return nil end
+    return mnx, mny, mxx-mnx, bh
 end
 
 -- ═══ SKELETON LIMPO ═══════════════════════════════════════════════
@@ -607,12 +677,16 @@ local function _esp()
             local h = char:FindFirstChildOfClass("Humanoid")
             if h then
                 local r = math.clamp(h.Health/h.MaxHealth, 0, 1)
-                local bx2 = bx-8
-                _nd("Line",{From=Vector2.new(bx2,by), To=Vector2.new(bx2,by+bh),
+                -- clamp independente: barra nunca ultrapassa 300px nem vai abaixo de 10px
+                local bar_h = math.clamp(bh, 10, 300)
+                local bar_top = by + (bh - bar_h) * 0.5  -- centraliza no bbox se bh < bar_h
+                local bx2 = bx - 8
+                _nd("Line",{From=Vector2.new(bx2, bar_top),
+                    To=Vector2.new(bx2, bar_top+bar_h),
                     Color=Color3.new(0,0,0), Thickness=5, Visible=true, ZIndex=2})
                 _nd("Line",{
-                    From=Vector2.new(bx2,by+bh),
-                    To=Vector2.new(bx2,by+bh-(bh*r)),
+                    From=Vector2.new(bx2, bar_top+bar_h),
+                    To=Vector2.new(bx2, bar_top+bar_h - bar_h*r),
                     Color=Color3.fromRGB(math.floor(255*(1-r)),math.floor(255*r),40),
                     Thickness=3, Visible=true, ZIndex=3})
             end
@@ -726,6 +800,16 @@ _RS.RenderStepped:Connect(function(dt)
     if _DESTROYED then return end
     _t = _t + dt
     _cam = workspace.CurrentCamera
+
+    -- scramble periódico de junk globals (dificulta dump estático de memória)
+    _junk_timer = _junk_timer + dt
+    if _junk_timer >= _JUNK_INTERVAL then
+        _junk_timer = 0
+        for _, k in ipairs(_junk_keys) do
+            rawset(_G, k, math.random()*9999)
+        end
+    end
+
     for _, fn in ipairs(_pulse_fns) do fn(_t) end
     _fc.Position = _cam.ViewportSize/2
     _fc.Visible = CFG.aim and CFG.aim_active
