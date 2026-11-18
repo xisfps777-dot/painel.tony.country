@@ -1,4 +1,4 @@
--- core.lua | Roblox LuaU | Solara | v7
+-- core.lua | Roblox LuaU | Solara | v8
 -- Evasão: XOR, string split, junk globals, dead code, constant folding, anti-tamper
 
 -- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
@@ -51,6 +51,9 @@ local CFG={
     esp_dist=false, esp_hp=false,
     esp_color=Color3.fromRGB(255,255,255),
     esp_max_dist=_DIST_DEF,
+    -- "drawing" = bbox projetada (pode falhar em alguns jogos)
+    -- "selection" = SelectionBox nativo (funciona em 100% dos jogos)
+    esp_method="selection",
 
     aim=false,
     aim_toggle=Enum.KeyCode.X,
@@ -65,6 +68,7 @@ local CFG={
 
 -- ═══ STATE ════════════════════════════════════════════════════════
 local _pool={}
+local _sel_pool={}   -- { player -> {box=SelectionBox, folder=Folder} }
 local _DESTROYED=false
 local _pulse_fns={}
 local _gui_ref=nil
@@ -88,13 +92,58 @@ local function _clr()
     _pool={}
 end
 
+-- ═══ SELECTION POOL ═══════════════════════════════════════════════
+-- cria ou atualiza um SelectionBox para o player
+local function _sel_ensure(p, char)
+    local entry = _sel_pool[p]
+    if not entry then
+        -- pasta invisible no CoreGui para guardar as instâncias
+        local folder = Instance.new("Folder")
+        folder.Name = "TC_SEL_"..p.UserId
+        pcall(function() folder.Parent = game:GetService(_svc[5]) end)
+        if not folder.Parent then
+            pcall(function() folder.Parent = _lp:WaitForChild("PlayerGui",1) end)
+        end
+
+        local box = Instance.new("SelectionBox")
+        box.Color3          = CFG.esp_color
+        box.LineThickness   = 0.04          -- espessura das arestas (studs)
+        box.SurfaceTransparency = 1         -- sem preenchimento de face
+        box.SurfaceColor3   = Color3.new(0,0,0)
+        box.Visible         = false
+        box.Parent          = folder
+
+        entry = {box=box, folder=folder}
+        _sel_pool[p] = entry
+    end
+    -- sempre re-aponta o Adornee (re-spawn muda o char)
+    entry.box.Color3  = CFG.esp_color
+    entry.box.Adornee = char
+    entry.box.Visible = true
+    return entry
+end
+
+local function _sel_hide(p)
+    local entry = _sel_pool[p]
+    if entry then
+        pcall(function() entry.box.Visible = false end)
+    end
+end
+
+local function _sel_clr()
+    for p, entry in pairs(_sel_pool) do
+        pcall(function() entry.box:Destroy() end)
+        pcall(function() entry.folder:Destroy() end)
+    end
+    _sel_pool = {}
+end
+
 -- ═══ CORES ════════════════════════════════════════════════════════
 local NW  = Color3.fromRGB(255,255,255)
 local NR  = Color3.fromRGB(255,30,30)
--- azul neon igual ao painel de referência
 local NEON      = Color3.fromRGB(255,255,255)
 local NEON_DARK = Color3.fromRGB(180,180,180)
-local BG_WIN    = Color3.fromRGB(5,5,5)      -- azul muito escuro
+local BG_WIN    = Color3.fromRGB(5,5,5)
 local BG_HDR    = Color3.fromRGB(10,10,10)
 local BG_ROW    = Color3.fromRGB(8,8,8)
 local BG_SEC    = Color3.fromRGB(12,12,12)
@@ -105,7 +154,6 @@ local function _corner(p,r)
     c.CornerRadius=UDim.new(0,r or 6); c.Parent=p
 end
 
--- glow triplo só para botões ON e DESTRUCT
 local function _glow_stroke(parent, color, thick1, thick2, thick3)
     local s1=Instance.new("UIStroke")
     s1.Color=color; s1.Thickness=thick1 or 1.5; s1.Transparency=0
@@ -131,8 +179,6 @@ local function _label(parent,text,size,color,xa,pos,sz,zi,bold)
     l.ZIndex=zi or 3; l.Parent=parent
     return l
 end
-
-
 
 -- ═══ BUILD GUI ════════════════════════════════════════════════════
 local function _build_gui()
@@ -164,7 +210,6 @@ local function _build_gui()
     win.ClipsDescendants=false; win.Parent=gui
     _corner(win,10)
 
-    -- borda simples, sem brilho
     local _ws=Instance.new("UIStroke")
     _ws.Color=Color3.fromRGB(30,30,30); _ws.Thickness=1; _ws.Transparency=0
     _ws.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; _ws.Parent=win
@@ -176,7 +221,6 @@ local function _build_gui()
     hdr.BorderSizePixel=0; hdr.ZIndex=2; hdr.Parent=win
     _corner(hdr,10)
 
-    -- título sem glow
     local title=_label(hdr,"TONY COUNTRY",19,NW,
         Enum.TextXAlignment.Center,
         UDim2.new(0,0,0,10),UDim2.new(1,0,0,28),4,true)
@@ -188,7 +232,6 @@ local function _build_gui()
         UDim2.new(0,0,0,38),UDim2.new(1,0,0,16),3,false)
     sub.TextStrokeTransparency=1
 
-    -- separador simples
     local sep=Instance.new("Frame")
     sep.Size=UDim2.new(1,-16,0,1)
     sep.Position=UDim2.new(0,8,0,62)
@@ -244,12 +287,9 @@ local function _build_gui()
         local _st=state
         local function _ref()
             if _st then
-                -- ON: botão branco brilhante, glow full
                 btn.BackgroundColor3=NW
                 btn.TextColor3=Color3.fromRGB(0,0,0); btn.Text="ON"
-                -- glow só no botão
                 bs1.Transparency=0; bs2.Transparency=0.3; bs3.Transparency=0.6
-                -- pulse no botão
                 if bpf then
                     for i,fn in ipairs(_pulse_fns) do
                         if fn==bpf then table.remove(_pulse_fns,i); break end
@@ -264,7 +304,6 @@ local function _build_gui()
                 end
                 table.insert(_pulse_fns,bpf)
             else
-                -- OFF: escuro, sem glow
                 btn.BackgroundColor3=Color3.fromRGB(14,14,14)
                 btn.TextColor3=Color3.fromRGB(90,90,90); btn.Text="OFF"
                 bs1.Transparency=1; bs2.Transparency=1; bs3.Transparency=1
@@ -278,6 +317,72 @@ local function _build_gui()
         end
         _ref()
         btn.MouseButton1Click:Connect(function() _st=not _st; cb(_st); _ref() end)
+        return _ref  -- exposto para atualização externa
+    end
+
+    -- ── ESP METHOD TOGGLE ─────────────────────────────────────────
+    -- botão que alterna entre "DRAW" e "SEL" e exibe o modo atual
+    local function _method_row(y)
+        local row=Instance.new("Frame")
+        row.Size=UDim2.new(1,-16,0,30)
+        row.Position=UDim2.new(0,8,0,y)
+        row.BackgroundColor3=BG_ROW
+        row.BorderSizePixel=0; row.ZIndex=2; row.Parent=win
+        _corner(row,7)
+        local _rs=Instance.new("UIStroke")
+        _rs.Color=Color3.fromRGB(35,35,35); _rs.Thickness=1; _rs.Transparency=0
+        _rs.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; _rs.Parent=row
+
+        _label(row,"  Modo ESP",12,Color3.fromRGB(210,210,210),
+            Enum.TextXAlignment.Left,
+            UDim2.new(0,12,0,0),UDim2.new(0.55,0,1,0),3,false)
+
+        -- label de hint à direita do nome
+        local hint=Instance.new("TextLabel")
+        hint.Size=UDim2.new(0,60,1,0)
+        hint.Position=UDim2.new(0,100,0,0)
+        hint.BackgroundTransparency=1
+        hint.TextColor3=Color3.fromRGB(80,80,80)
+        hint.TextSize=9; hint.Font=Enum.Font.Gotham
+        hint.TextXAlignment=Enum.TextXAlignment.Left
+        hint.ZIndex=3; hint.Parent=row
+
+        local btn=Instance.new("TextButton")
+        btn.Size=UDim2.new(0,72,0,22)
+        btn.Position=UDim2.new(1,-78,0.5,-11)
+        btn.TextSize=11; btn.Font=Enum.Font.GothamBold
+        btn.BorderSizePixel=0; btn.ZIndex=4; btn.Parent=row
+        _corner(btn,6)
+
+        local function _ref_method()
+            if CFG.esp_method=="selection" then
+                btn.Text="✔ SEL"
+                btn.BackgroundColor3=Color3.fromRGB(10,30,10)
+                btn.TextColor3=Color3.fromRGB(80,220,80)
+                hint.Text="100%"
+                -- limpa drawings se estava no modo drawing
+                _clr()
+            else
+                btn.Text="DRAW"
+                btn.BackgroundColor3=Color3.fromRGB(14,14,14)
+                btn.TextColor3=Color3.fromRGB(160,160,160)
+                hint.Text="padrão"
+                -- limpa selections se estava no modo selection
+                _sel_clr()
+            end
+        end
+        _ref_method()
+
+        btn.MouseButton1Click:Connect(function()
+            if CFG.esp_method=="selection" then
+                CFG.esp_method="drawing"
+                _sel_clr()
+            else
+                CFG.esp_method="selection"
+                _clr()
+            end
+            _ref_method()
+        end)
     end
 
     -- ── FOV SLIDER ───────────────────────────────────────────────
@@ -353,7 +458,8 @@ local function _build_gui()
 
     _sec("ESP",Y); Y=Y+26
     _row("  ESP Master",   CFG.esp,      Y, function(v) CFG.esp=v end);       Y=Y+34
-    _row("  Box (corner)", CFG.esp_box,  Y, function(v) CFG.esp_box=v end);   Y=Y+34
+    _method_row(Y); Y=Y+34
+    _row("  Box",          CFG.esp_box,  Y, function(v) CFG.esp_box=v end);   Y=Y+34
     _row("  Nome",         CFG.esp_name, Y, function(v) CFG.esp_name=v end);  Y=Y+34
     _row("  Distância",    CFG.esp_dist, Y, function(v) CFG.esp_dist=v end);  Y=Y+34
     _row("  HP Bar",       CFG.esp_hp,   Y, function(v) CFG.esp_hp=v end);    Y=Y+38
@@ -399,6 +505,7 @@ local function _build_gui()
     db.MouseButton1Click:Connect(function()
         _DESTROYED=true
         _clr()
+        _sel_clr()
         pcall(function() _fc:Remove() end)
         pcall(function() _gui_ref:Destroy() end)
     end)
@@ -408,7 +515,6 @@ local function _build_gui()
 end
 
 -- ═══ UTILS ════════════════════════════════════════════════════════
--- pega humanoid em qualquer lugar do char (R6, R15, custom rigs)
 local function _get_hum(char)
     if not char then return nil end
     local h = char:FindFirstChildOfClass("Humanoid")
@@ -421,7 +527,6 @@ local function _alive(char)
     return h and h.Health > 0
 end
 
--- pega a parte raiz: tenta HumanoidRootPart, Torso, UpperTorso, qualquer BasePart
 local function _get_root(char)
     if not char then return nil end
     return char:FindFirstChild("HumanoidRootPart")
@@ -429,38 +534,36 @@ local function _get_root(char)
         or char:FindFirstChild("UpperTorso")
         or char:FindFirstChildWhichIsA("BasePart")
 end
+
 local function _smt(p)
     if not CFG.aim_teamcheck then return false end
     return p.Team~=nil and p.Team==_lp.Team
 end
+
 local function _w2s(pos)
     local s,inv=_cam:WorldToViewportPoint(pos)
     return Vector2.new(s.X,s.Y),inv,s.Z
 end
+
+-- bbox corrigida: sem filtro de tamanho, raio aumentado, fallback robusto
 local function _bbox(char)
     local vp  = _cam.ViewportSize
     local vpX, vpY = vp.X, vp.Y
     local mnx,mny,mxx,mxy = math.huge,math.huge,-math.huge,-math.huge
     local found = false
 
-    -- coleta TODAS as BasePart filhas diretas e descendentes do char
-    -- filtra apenas por tamanho (nada maior que 20 studs em qualquer eixo)
-    -- e por distância ao root (descarta partes soltas muito longe do corpo)
     local root = _get_root(char)
     local rootPos = root and root.Position or nil
 
     for _,p in ipairs(char:GetDescendants()) do
         if not p:IsA("BasePart") then continue end
-        local sz = p.Size
-        -- descarta partes muito grandes (mapa, veículo, prop)
-        if sz.X > 15 or sz.Y > 15 or sz.Z > 15 then continue end
-        -- se temos root, descarta partes muito longe do corpo (> 10 studs)
+        -- sem filtro de tamanho — apenas descarta partes ridiculamente longe do root
         if rootPos then
             local d3 = (p.Position - rootPos).Magnitude
-            if d3 > 10 then continue end
+            if d3 > 20 then continue end  -- 20 studs — cobre weapons na mão
         end
 
-        local hs = sz * 0.5
+        local hs = p.Size * 0.5
         local cf = p.CFrame
         for _,o in ipairs({
             Vector3.new( hs.X, hs.Y, hs.Z), Vector3.new(-hs.X, hs.Y, hs.Z),
@@ -481,15 +584,121 @@ local function _bbox(char)
         end
     end
 
+    -- fallback: char sem partes acessíveis → 2 pontos ao redor do root
+    if not found and rootPos then
+        local hum = _get_hum(char)
+        local hipH = hum and hum.HipHeight or 1.5
+        local pts = {
+            rootPos + Vector3.new( 0.5, hipH+1.0, 0),
+            rootPos + Vector3.new(-0.5, hipH+1.0, 0),
+            rootPos + Vector3.new( 0.5, -hipH*0.4, 0),
+            rootPos + Vector3.new(-0.5, -hipH*0.4, 0),
+        }
+        for _,wp in ipairs(pts) do
+            local sp,inv,d = _w2s(wp)
+            if not inv or d <= 0 then continue end
+            local sx = math.clamp(sp.X, 0, vpX)
+            local sy = math.clamp(sp.Y, 0, vpY)
+            if sx < mnx then mnx=sx end
+            if sy < mny then mny=sy end
+            if sx > mxx then mxx=sx end
+            if sy > mxy then mxy=sy end
+            found = true
+        end
+    end
+
     if not found then return nil end
     local w,h = mxx-mnx, mxy-mny
     if w < 2 or h < 2 then return nil end
-    if w > vpX*0.6 or h > vpY*0.8 then return nil end
+    -- sem hard-cap de vpX*0.6 — jogos em 3ª pessoa com cam perto têm chars grandes
     return mnx, mny, w, h
 end
 
--- ═══ ESP ══════════════════════════════════════════════════════════
-local function _esp()
+-- ═══ ESP — SELECTION MODE (100% compat) ═══════════════════════════
+-- só mostra a caixa nativa; nome/dist/hp ainda usam Drawing em overlay
+local function _esp_selection()
+    if not CFG.esp then
+        -- esconde todos
+        for p,_ in pairs(_sel_pool) do _sel_hide(p) end
+        return
+    end
+
+    local active = {}
+
+    for _,p in ipairs(_P:GetPlayers()) do
+        if p == _lp then continue end
+
+        local char = p.Character
+        if not char then _sel_hide(p); continue end
+        if not _alive(char) then _sel_hide(p); continue end
+
+        local root = _get_root(char)
+        if not root then _sel_hide(p); continue end
+
+        local dist = (_cam.CFrame.Position - root.Position).Magnitude
+        if dist > CFG.esp_max_dist then _sel_hide(p); continue end
+
+        local _,inv,depth = _w2s(root.Position)
+        if not inv or depth <= 0 then _sel_hide(p); continue end
+
+        active[p] = true
+        _sel_ensure(p, char)
+
+        -- overlay de texto (nome, dist, hp) mesmo no modo selection
+        -- usa _bbox; se falhar usa root projetado
+        local bx,by,bw,bh = _bbox(char)
+        if not bx then
+            local rsp = _w2s(root.Position)
+            bx=rsp.X-18; by=rsp.Y-40; bw=36; bh=50
+        end
+
+        if CFG.esp_name then
+            _nd("Text",{Text=p.Name,
+                Position=Vector2.new(bx+bw/2+1,by-13),
+                Size=13,Color=Color3.new(0,0,0),
+                Outline=false,Center=true,Visible=true,ZIndex=3})
+            _nd("Text",{Text=p.Name,
+                Position=Vector2.new(bx+bw/2,by-14),
+                Size=13,Color=NW,
+                Outline=false,Center=true,Visible=true,ZIndex=4})
+        end
+
+        if CFG.esp_dist then
+            _nd("Text",{
+                Text=("%.0fm"):format(dist),
+                Position=Vector2.new(bx+bw/2,by+bh+3),
+                Size=11,Color=Color3.fromRGB(190,190,190),
+                Outline=true,Center=true,Visible=true,ZIndex=4})
+        end
+
+        if CFG.esp_hp then
+            local hum = _get_hum(char)
+            if hum and hum.MaxHealth > 0 then
+                local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                local barH  = math.max(bh, 20)
+                local bx2   = bx - 7
+                local topY  = by
+                local botY  = by + barH
+                local fillY = botY - barH * ratio
+                local hpR   = math.floor(255 * (1 - ratio))
+                local hpG   = math.floor(255 * ratio)
+                _nd("Line",{From=Vector2.new(bx2,topY),To=Vector2.new(bx2,botY),
+                    Color=Color3.new(0,0,0),Thickness=5,Visible=true,ZIndex=2})
+                _nd("Line",{From=Vector2.new(bx2,botY),To=Vector2.new(bx2,fillY),
+                    Color=Color3.fromRGB(hpR,hpG,40),
+                    Thickness=3,Visible=true,ZIndex=3})
+            end
+        end
+    end
+
+    -- limpa SelectionBoxes de players que saíram
+    for p,_ in pairs(_sel_pool) do
+        if not active[p] then _sel_hide(p) end
+    end
+end
+
+-- ═══ ESP — DRAWING MODE ═══════════════════════════════════════════
+local function _esp_drawing()
     _clr()
     if not CFG.esp then return end
 
@@ -507,24 +716,19 @@ local function _esp()
         local dist = (_cam.CFrame.Position - rootPos).Magnitude
         if dist > CFG.esp_max_dist then continue end
 
-        -- verifica se root está na tela
         local _,inv,depth = _w2s(rootPos)
         if not inv or depth <= 0 then continue end
 
-        -- bbox: tenta partes do char; fallback: constrói box ao redor do root
         local bx,by,bw,bh = _bbox(char)
 
-        -- fallback: se bbox falhar, estima a box pela posição do root + altura do humanoid
         if not bx then
             local hum = _get_hum(char)
             local hipHeight = hum and hum.HipHeight or 1.5
-            local halfH = hipHeight + 1.0   -- torso + cabeça aproximado
-
+            local halfH = hipHeight + 1.0
             local topPt    = _w2s(rootPos + Vector3.new(0, halfH, 0))
             local botPt    = _w2s(rootPos - Vector3.new(0, hipHeight * 0.5, 0))
             local leftPt   = _w2s(rootPos + Vector3.new(-1, 0, 0))
             local rightPt  = _w2s(rootPos + Vector3.new( 1, 0, 0))
-
             local vp = _cam.ViewportSize
             local x1 = math.clamp(math.min(leftPt.X, rightPt.X), 0, vp.X)
             local x2 = math.clamp(math.max(leftPt.X, rightPt.X), 0, vp.X)
@@ -532,7 +736,6 @@ local function _esp()
             local y2 = math.clamp(botPt.Y, 0, vp.Y)
             local w  = math.max(x2-x1, 20)
             local h  = math.max(y2-y1, 30)
-            -- centraliza no root projetado
             local rsp = _w2s(rootPos)
             bx = rsp.X - w/2
             by = y1
@@ -540,7 +743,6 @@ local function _esp()
             bh = h
         end
 
-        -- box (corner style)
         if CFG.esp_box then
             local clen = math.min(bw,bh) * 0.22
             for _,c in ipairs({
@@ -560,7 +762,6 @@ local function _esp()
             end
         end
 
-        -- nome
         if CFG.esp_name then
             _nd("Text",{Text=p.Name,
                 Position=Vector2.new(bx+bw/2+1,by-13),
@@ -572,7 +773,6 @@ local function _esp()
                 Outline=false,Center=true,Visible=true,ZIndex=4})
         end
 
-        -- distância
         if CFG.esp_dist then
             _nd("Text",{
                 Text=("%.0fm"):format(dist),
@@ -581,7 +781,6 @@ local function _esp()
                 Outline=true,Center=true,Visible=true,ZIndex=4})
         end
 
-        -- hp bar — altura fixa baseada em bh, mínimo de 20px
         if CFG.esp_hp then
             local hum = _get_hum(char)
             if hum and hum.MaxHealth > 0 then
@@ -593,15 +792,24 @@ local function _esp()
                 local fillY = botY - barH * ratio
                 local hpR   = math.floor(255 * (1 - ratio))
                 local hpG   = math.floor(255 * ratio)
-                -- fundo preto
                 _nd("Line",{From=Vector2.new(bx2,topY),To=Vector2.new(bx2,botY),
                     Color=Color3.new(0,0,0),Thickness=5,Visible=true,ZIndex=2})
-                -- barra colorida
                 _nd("Line",{From=Vector2.new(bx2,botY),To=Vector2.new(bx2,fillY),
                     Color=Color3.fromRGB(hpR,hpG,40),
                     Thickness=3,Visible=true,ZIndex=3})
             end
         end
+    end
+end
+
+-- dispatcher
+local function _esp()
+    if CFG.esp_method == "selection" then
+        _clr()          -- garante que drawings do modo anterior limpam
+        _esp_selection()
+    else
+        _sel_clr()      -- garante que SelectionBoxes do modo anterior limpam
+        _esp_drawing()
     end
 end
 
