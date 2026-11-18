@@ -182,7 +182,7 @@ local function _build_gui()
         UDim2.new(0,0,0,10),UDim2.new(1,0,0,28),4,true)
     title.TextStrokeTransparency=1
 
-    local sub=_label(hdr,"✦  ESP  ·  AIMBOT  ✦",9,
+    local sub=_label(hdr,"BY BARRETO",9,
         Color3.fromRGB(160,160,160),
         Enum.TextXAlignment.Center,
         UDim2.new(0,0,0,38),UDim2.new(1,0,0,16),3,false)
