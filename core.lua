@@ -1,4 +1,4 @@
--- core.lua | Roblox LuaU | Solara | v6
+-- core.lua | Roblox LuaU | Solara | v7
 -- Evasão: XOR, string split, junk globals, dead code, constant folding, anti-tamper
 
 -- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
@@ -33,9 +33,9 @@ if false then
 end
 
 -- ═══ CONSTANT FOLDING ═════════════════════════════════════════════
-local _FOV_DEF  = bit32.bxor(0xFF,0x69)   -- 150
-local _SM_DEF   = 14/100                   -- 0.14
-local _DIST_DEF = 10^3                     -- 1000
+local _FOV_DEF  = bit32.bxor(0xFF,0x69)
+local _SM_DEF   = 14/100
+local _DIST_DEF = 10^3
 
 -- ═══ SERVICES ═════════════════════════════════════════════════════
 local _P   = game:GetService(_svc[1])
@@ -56,7 +56,7 @@ local CFG={
     aim_toggle=Enum.KeyCode.X,
     aim_hold=Enum.UserInputType.MouseButton2,
     aim_fov=_FOV_DEF,
-    aim_smooth=_SM_DEF,       -- 0.0 = snap, 1.0 = muito suave
+    aim_smooth=_SM_DEF,
     aim_target=_j("He","ad"),
     aim_teamcheck=false,
 
@@ -88,31 +88,58 @@ local function _clr()
     _pool={}
 end
 
--- ═══ NEON HELPERS ═════════════════════════════════════════════════
-local NW=Color3.fromRGB(255,255,255)
-local NR=Color3.fromRGB(255,30,30)
-local BG_DARK = Color3.fromRGB(4,4,4)
-local BG_ROW  = Color3.fromRGB(8,8,8)
-local BG_HDR  = Color3.fromRGB(10,10,10)
+-- ═══ CORES ════════════════════════════════════════════════════════
+local NW  = Color3.fromRGB(255,255,255)
+local NR  = Color3.fromRGB(255,30,30)
+-- azul neon igual ao painel de referência
+local NEON      = Color3.fromRGB(0,180,255)
+local NEON_DARK = Color3.fromRGB(0,100,200)
+local BG_WIN    = Color3.fromRGB(5,8,18)      -- azul muito escuro
+local BG_HDR    = Color3.fromRGB(8,12,28)
+local BG_ROW    = Color3.fromRGB(7,10,22)
+local BG_SEC    = Color3.fromRGB(10,14,30)
 
-local function _stroke(parent,color,thick,trans)
-    local s=Instance.new("UIStroke")
-    s.Color=color; s.Thickness=thick or 1.5
-    s.Transparency=trans or 0
-    s.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
-    s.Parent=parent; return s
-end
-local function _mk_pulse(stroke,base,amp,spd)
-    return function(t)
-        pcall(function()
-            stroke.Transparency=base+math.abs(math.sin(t*spd))*amp
-        end)
-    end
-end
+-- ═══ HELPERS ══════════════════════════════════════════════════════
 local function _corner(p,r)
     local c=Instance.new("UICorner")
     c.CornerRadius=UDim.new(0,r or 6); c.Parent=p
 end
+
+-- stroke múltiplas camadas para glow intenso
+local function _glow_stroke(parent, color, thick1, thick2, thick3)
+    -- camada 1: fina e opaca (borda dura)
+    local s1=Instance.new("UIStroke")
+    s1.Color=color; s1.Thickness=thick1 or 1.5
+    s1.Transparency=0
+    s1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+    s1.Parent=parent
+
+    -- camada 2: média, semi-transparente (halo interno)
+    local s2=Instance.new("UIStroke")
+    s2.Color=color; s2.Thickness=thick2 or 4
+    s2.Transparency=0.45
+    s2.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+    s2.Parent=parent
+
+    -- camada 3: grossa, bem transparente (bloom externo)
+    local s3=Instance.new("UIStroke")
+    s3.Color=color; s3.Thickness=thick3 or 10
+    s3.Transparency=0.72
+    s3.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+    s3.Parent=parent
+
+    return s1, s2, s3
+end
+
+local function _mk_pulse3(s1,s2,s3, base1,base2,base3, amp,spd)
+    return function(t)
+        local v=math.abs(math.sin(t*spd))
+        pcall(function() s1.Transparency=base1+v*amp*0.3 end)
+        pcall(function() s2.Transparency=base2+v*amp*0.4 end)
+        pcall(function() s3.Transparency=base3+v*amp*0.5 end)
+    end
+end
+
 local function _label(parent,text,size,color,xa,pos,sz,zi,bold)
     local l=Instance.new("TextLabel")
     l.BackgroundTransparency=1
@@ -124,6 +151,22 @@ local function _label(parent,text,size,color,xa,pos,sz,zi,bold)
     if sz  then l.Size=sz end
     l.ZIndex=zi or 3; l.Parent=parent
     return l
+end
+
+-- linha neon decorativa (glow de 3 passes em Drawing)
+local function _neon_line_h(parent, y, r, g, b)
+    local col = Color3.fromRGB(r,g,b)
+    local line = Instance.new("Frame")
+    line.Size=UDim2.new(1,-20,0,2)
+    line.Position=UDim2.new(0,10,0,y)
+    line.BackgroundColor3=col
+    line.BorderSizePixel=0; line.ZIndex=4; line.Parent=parent
+    -- glow via UIStroke na linha
+    local s=Instance.new("UIStroke")
+    s.Color=col; s.Thickness=6; s.Transparency=0.55
+    s.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+    s.Parent=line
+    return line, s
 end
 
 -- ═══ BUILD GUI ════════════════════════════════════════════════════
@@ -145,161 +188,233 @@ local function _build_gui()
     if not ok then warn("[TC] parent falhou"); return end
     _gui_ref=gui
 
+    -- ── JANELA ───────────────────────────────────────────────────
     local win=Instance.new("Frame")
     win.Name="Win"
     win.Size=UDim2.new(0,300,0,10)
     win.Position=UDim2.new(0,24,0.5,-200)
-    win.BackgroundColor3=BG_DARK
+    win.BackgroundColor3=BG_WIN
     win.BorderSizePixel=0
     win.Active=true; win.Draggable=true
     win.ClipsDescendants=false; win.Parent=gui
-    _corner(win,8)
+    _corner(win,10)
 
-    local ws1=_stroke(win,NW,2.5,0)
-    local ws2=_stroke(win,NW,5,0.6)
-    table.insert(_pulse_fns,_mk_pulse(ws1,0,0.15,1.1))
-    table.insert(_pulse_fns,_mk_pulse(ws2,0.4,0.4,1.1))
+    -- borda neon azul tripla camada (glow forte)
+    local ws1,ws2,ws3=_glow_stroke(win, NEON, 1.5, 5, 14)
+    table.insert(_pulse_fns,_mk_pulse3(ws1,ws2,ws3, 0,0.35,0.65, 0.3,1.0))
 
+    -- ── HEADER ───────────────────────────────────────────────────
     local hdr=Instance.new("Frame")
-    hdr.Size=UDim2.new(1,0,0,52)
+    hdr.Size=UDim2.new(1,0,0,60)
     hdr.BackgroundColor3=BG_HDR
     hdr.BorderSizePixel=0; hdr.ZIndex=2; hdr.Parent=win
-    _corner(hdr,8)
+    _corner(hdr,10)
 
-    local htop=Instance.new("Frame")
-    htop.Size=UDim2.new(1,0,0,2)
-    htop.BackgroundColor3=NW
-    htop.BorderSizePixel=0; htop.ZIndex=4; htop.Parent=hdr
-    local hts=_stroke(htop,NW,3,0.3)
-    table.insert(_pulse_fns,_mk_pulse(hts,0.1,0.5,1.4))
+    -- linha topo do header — neon azul brilhante
+    local htop,hts=_neon_line_h(hdr,-1,0,180,255)
+    htop.Size=UDim2.new(1,0,0,2); htop.Position=UDim2.new(0,0,0,0)
+    table.insert(_pulse_fns,function(t)
+        pcall(function() hts.Transparency=0.3+math.abs(math.sin(t*1.2))*0.4 end)
+    end)
 
-    _label(hdr,"TONY COUNTRY",17,NW,
+    -- título com glow de texto
+    local title=_label(hdr,"TONY COUNTRY",19,NW,
         Enum.TextXAlignment.Center,
-        UDim2.new(0,0,0,8),UDim2.new(1,0,0,26),3,true)
-    _label(hdr,"✦  ESP  ·  AIMBOT  ✦",9,
-        Color3.fromRGB(140,140,140),
-        Enum.TextXAlignment.Center,
-        UDim2.new(0,0,0,32),UDim2.new(1,0,0,16),3,false)
+        UDim2.new(0,0,0,10),UDim2.new(1,0,0,28),4,true)
+    -- shadow de glow no título (TextStroke)
+    title.TextStrokeColor3=NEON
+    title.TextStrokeTransparency=0.4
+    table.insert(_pulse_fns,function(t)
+        pcall(function()
+            title.TextStrokeTransparency=0.2+math.abs(math.sin(t*1.1))*0.4
+        end)
+    end)
 
+    local sub=_label(hdr,"✦  ESP  ·  AIMBOT  ✦",9,
+        Color3.fromRGB(80,160,255),
+        Enum.TextXAlignment.Center,
+        UDim2.new(0,0,0,38),UDim2.new(1,0,0,16),3,false)
+    sub.TextStrokeColor3=NEON
+    sub.TextStrokeTransparency=0.6
+
+    -- separador
     local sep=Instance.new("Frame")
-    sep.Size=UDim2.new(1,-20,0,1)
-    sep.Position=UDim2.new(0,10,0,54)
-    sep.BackgroundColor3=NW
-    sep.BackgroundTransparency=0.7
-    sep.BorderSizePixel=0; sep.ZIndex=2; sep.Parent=win
+    sep.Size=UDim2.new(1,-16,0,1)
+    sep.Position=UDim2.new(0,8,0,62)
+    sep.BackgroundColor3=NEON
+    sep.BackgroundTransparency=0.3
+    sep.BorderSizePixel=0; sep.ZIndex=3; sep.Parent=win
+    -- glow no sep
+    local seps=Instance.new("UIStroke")
+    seps.Color=NEON; seps.Thickness=4; seps.Transparency=0.6
+    seps.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; seps.Parent=sep
+    table.insert(_pulse_fns,function(t)
+        pcall(function() seps.Transparency=0.4+math.abs(math.sin(t*1.3))*0.4 end)
+    end)
 
+    -- ── SECTION LABEL ────────────────────────────────────────────
     local function _sec(text,y)
         local f=Instance.new("Frame")
-        f.Size=UDim2.new(1,-20,0,20)
-        f.Position=UDim2.new(0,10,0,y)
-        f.BackgroundColor3=Color3.fromRGB(12,12,12)
+        f.Size=UDim2.new(1,-16,0,22)
+        f.Position=UDim2.new(0,8,0,y)
+        f.BackgroundColor3=BG_SEC
         f.BorderSizePixel=0; f.ZIndex=2; f.Parent=win
-        _corner(f,4)
-        _stroke(f,NW,1,0.5)
-        _label(f,"  "..text,10,NW,
+        _corner(f,5)
+        -- borda neon azul dupla
+        local fs1,fs2,_=_glow_stroke(f,NEON,1,4,0)
+        fs2.Transparency=0.5
+        _label(f,"  "..text,11,NEON,
             Enum.TextXAlignment.Left,
             UDim2.new(0,0,0,0),UDim2.new(1,0,1,0),3,true)
     end
 
+    -- ── TOGGLE ROW ───────────────────────────────────────────────
     local function _row(text,state,y,cb)
         local row=Instance.new("Frame")
-        row.Size=UDim2.new(1,-20,0,28)
-        row.Position=UDim2.new(0,10,0,y)
+        row.Size=UDim2.new(1,-16,0,30)
+        row.Position=UDim2.new(0,8,0,y)
         row.BackgroundColor3=BG_ROW
         row.BorderSizePixel=0; row.ZIndex=2; row.Parent=win
-        _corner(row,6)
-        local rs=_stroke(row,NW,1,1)
+        _corner(row,7)
+        local rs1,rs2,rs3=_glow_stroke(row,NEON,1,4,10)
+        rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
+        local rpf=nil
 
-        _label(row,text,11,Color3.fromRGB(200,200,200),
+        _label(row,text,12,Color3.fromRGB(210,220,255),
             Enum.TextXAlignment.Left,
-            UDim2.new(0,10,0,0),UDim2.new(0.65,0,1,0),3,false)
+            UDim2.new(0,12,0,0),UDim2.new(0.6,0,1,0),3,false)
 
         local btn=Instance.new("TextButton")
-        btn.Size=UDim2.new(0,52,0,20)
-        btn.Position=UDim2.new(1,-58,0.5,-10)
-        btn.BackgroundColor3=Color3.fromRGB(14,14,14)
+        btn.Size=UDim2.new(0,58,0,22)
+        btn.Position=UDim2.new(1,-64,0.5,-11)
+        btn.BackgroundColor3=Color3.fromRGB(12,16,36)
         btn.Text="OFF"
-        btn.TextColor3=Color3.fromRGB(90,90,90)
-        btn.TextSize=11; btn.Font=Enum.Font.GothamBold
-        btn.BorderSizePixel=0; btn.ZIndex=3; btn.Parent=row
-        _corner(btn,5)
-        local bs=_stroke(btn,NW,1.5,1)
+        btn.TextColor3=Color3.fromRGB(80,100,160)
+        btn.TextSize=12; btn.Font=Enum.Font.GothamBold
+        btn.BorderSizePixel=0; btn.ZIndex=4; btn.Parent=row
+        _corner(btn,6)
+        local bs1,bs2,bs3=_glow_stroke(btn,NEON,1,4,10)
+        bs1.Transparency=1; bs2.Transparency=1; bs3.Transparency=1
+        local bpf=nil
 
-        local _st=state; local _pf=nil
+        local _st=state
         local function _ref()
             if _st then
-                btn.BackgroundColor3=Color3.fromRGB(230,230,230)
+                -- ON: botão branco brilhante, glow full
+                btn.BackgroundColor3=NW
                 btn.TextColor3=Color3.fromRGB(0,0,0); btn.Text="ON"
-                bs.Transparency=0; rs.Transparency=0
-                if _pf then
+                -- glow na row
+                rs1.Transparency=0; rs2.Transparency=0.35; rs3.Transparency=0.65
+                -- glow no botão
+                bs1.Transparency=0; bs2.Transparency=0.3; bs3.Transparency=0.6
+                -- pulse no botão
+                if bpf then
                     for i,fn in ipairs(_pulse_fns) do
-                        if fn==_pf then table.remove(_pulse_fns,i); break end
+                        if fn==bpf then table.remove(_pulse_fns,i); break end
                     end
                 end
-                _pf=_mk_pulse(bs,0,0.4,2.4)
-                table.insert(_pulse_fns,_pf)
+                bpf=function(t)
+                    pcall(function()
+                        local v=math.abs(math.sin(t*2.2))
+                        bs2.Transparency=0.2+v*0.3
+                        bs3.Transparency=0.5+v*0.3
+                    end)
+                end
+                table.insert(_pulse_fns,bpf)
+                -- pulse na row
+                if rpf then
+                    for i,fn in ipairs(_pulse_fns) do
+                        if fn==rpf then table.remove(_pulse_fns,i); break end
+                    end
+                end
+                rpf=function(t)
+                    pcall(function()
+                        local v=math.abs(math.sin(t*1.1))
+                        rs2.Transparency=0.25+v*0.3
+                        rs3.Transparency=0.55+v*0.3
+                    end)
+                end
+                table.insert(_pulse_fns,rpf)
             else
-                btn.BackgroundColor3=Color3.fromRGB(14,14,14)
-                btn.TextColor3=Color3.fromRGB(90,90,90); btn.Text="OFF"
-                bs.Transparency=1; rs.Transparency=1
-                if _pf then
-                    for i,fn in ipairs(_pulse_fns) do
-                        if fn==_pf then table.remove(_pulse_fns,i); break end
+                -- OFF: escuro, sem glow
+                btn.BackgroundColor3=Color3.fromRGB(12,16,36)
+                btn.TextColor3=Color3.fromRGB(80,100,160); btn.Text="OFF"
+                rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
+                bs1.Transparency=1; bs2.Transparency=1; bs3.Transparency=1
+                for _,pf in ipairs({bpf,rpf}) do
+                    if pf then
+                        for i,fn in ipairs(_pulse_fns) do
+                            if fn==pf then table.remove(_pulse_fns,i); break end
+                        end
                     end
-                    _pf=nil
                 end
+                bpf=nil; rpf=nil
             end
         end
         _ref()
         btn.MouseButton1Click:Connect(function() _st=not _st; cb(_st); _ref() end)
     end
 
+    -- ── FOV SLIDER ───────────────────────────────────────────────
     local function _fov_slider(y)
         local frame=Instance.new("Frame")
-        frame.Size=UDim2.new(1,-20,0,44)
-        frame.Position=UDim2.new(0,10,0,y)
+        frame.Size=UDim2.new(1,-16,0,46)
+        frame.Position=UDim2.new(0,8,0,y)
         frame.BackgroundColor3=BG_ROW
         frame.BorderSizePixel=0; frame.ZIndex=2; frame.Parent=win
-        _corner(frame,6)
-        _stroke(frame,NW,1,0.6)
+        _corner(frame,7)
+        _glow_stroke(frame,NEON,1,4,0)
 
-        _label(frame,"  FOV",11,Color3.fromRGB(200,200,200),
+        _label(frame,"  FOV",12,Color3.fromRGB(210,220,255),
             Enum.TextXAlignment.Left,
-            UDim2.new(0,0,0,2),UDim2.new(0.4,0,0,18),3,false)
+            UDim2.new(0,0,0,2),UDim2.new(0.4,0,0,20),3,false)
 
         local val_lbl=Instance.new("TextLabel")
-        val_lbl.Size=UDim2.new(0.3,0,0,18)
+        val_lbl.Size=UDim2.new(0.3,0,0,20)
         val_lbl.Position=UDim2.new(0.7,0,0,2)
         val_lbl.BackgroundTransparency=1
         val_lbl.Text=tostring(CFG.aim_fov)
-        val_lbl.TextColor3=NW
-        val_lbl.TextSize=11; val_lbl.Font=Enum.Font.GothamBold
+        val_lbl.TextColor3=NEON
+        val_lbl.TextSize=12; val_lbl.Font=Enum.Font.GothamBold
         val_lbl.TextXAlignment=Enum.TextXAlignment.Right
+        val_lbl.TextStrokeColor3=NEON
+        val_lbl.TextStrokeTransparency=0.5
         val_lbl.ZIndex=3; val_lbl.Parent=frame
 
         local track=Instance.new("Frame")
-        track.Size=UDim2.new(1,-16,0,4)
-        track.Position=UDim2.new(0,8,0,30)
-        track.BackgroundColor3=Color3.fromRGB(30,30,30)
+        track.Size=UDim2.new(1,-18,0,5)
+        track.Position=UDim2.new(0,9,0,32)
+        track.BackgroundColor3=Color3.fromRGB(15,20,45)
         track.BorderSizePixel=0; track.ZIndex=3; track.Parent=frame
-        _corner(track,2)
+        _corner(track,3)
 
         local fill=Instance.new("Frame")
         fill.Size=UDim2.new(CFG.aim_fov/500,0,1,0)
-        fill.BackgroundColor3=NW
+        fill.BackgroundColor3=NEON
         fill.BorderSizePixel=0; fill.ZIndex=4; fill.Parent=track
-        _corner(fill,2)
-        local fs=_stroke(fill,NW,2,0.3)
-        table.insert(_pulse_fns,_mk_pulse(fs,0.1,0.4,1.5))
+        _corner(fill,3)
+        -- glow no fill
+        local fs1=Instance.new("UIStroke")
+        fs1.Color=NEON; fs1.Thickness=4; fs1.Transparency=0.5
+        fs1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; fs1.Parent=fill
+        table.insert(_pulse_fns,function(t)
+            pcall(function() fs1.Transparency=0.3+math.abs(math.sin(t*1.4))*0.4 end)
+        end)
 
         local handle=Instance.new("TextButton")
-        handle.Size=UDim2.new(0,12,0,12)
-        handle.Position=UDim2.new(CFG.aim_fov/500,0,0.5,-6)
+        handle.Size=UDim2.new(0,14,0,14)
+        handle.Position=UDim2.new(CFG.aim_fov/500,0,0.5,-7)
         handle.BackgroundColor3=NW
         handle.Text=""; handle.BorderSizePixel=0
         handle.ZIndex=5; handle.Parent=track
-        _corner(handle,6)
-        _stroke(handle,NW,2,0)
+        _corner(handle,7)
+        -- glow no handle
+        local hs1=Instance.new("UIStroke")
+        hs1.Color=NEON; hs1.Thickness=5; hs1.Transparency=0.4
+        hs1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; hs1.Parent=handle
+        table.insert(_pulse_fns,function(t)
+            pcall(function() hs1.Transparency=0.2+math.abs(math.sin(t*1.4))*0.4 end)
+        end)
 
         local dragging=false
         handle.MouseButton1Down:Connect(function() dragging=true end)
@@ -317,51 +432,58 @@ local function _build_gui()
             _fc.Radius=nf
             val_lbl.Text=tostring(nf)
             fill.Size=UDim2.new(rel,0,1,0)
-            handle.Position=UDim2.new(rel,0,0.5,-6)
+            handle.Position=UDim2.new(rel,0,0.5,-7)
         end)
     end
 
-    -- layout — sem skeleton
-    local Y=60
+    -- ── LAYOUT ───────────────────────────────────────────────────
+    local Y=66
 
-    _sec("ESP",Y); Y=Y+24
-    _row("  ESP Master",   CFG.esp,      Y, function(v) CFG.esp=v end);       Y=Y+32
-    _row("  Box (corner)", CFG.esp_box,  Y, function(v) CFG.esp_box=v end);   Y=Y+32
-    _row("  Nome",         CFG.esp_name, Y, function(v) CFG.esp_name=v end);  Y=Y+32
-    _row("  Distância",    CFG.esp_dist, Y, function(v) CFG.esp_dist=v end);  Y=Y+32
-    _row("  HP Bar",       CFG.esp_hp,   Y, function(v) CFG.esp_hp=v end);    Y=Y+36
+    _sec("ESP",Y); Y=Y+26
+    _row("  ESP Master",   CFG.esp,      Y, function(v) CFG.esp=v end);       Y=Y+34
+    _row("  Box (corner)", CFG.esp_box,  Y, function(v) CFG.esp_box=v end);   Y=Y+34
+    _row("  Nome",         CFG.esp_name, Y, function(v) CFG.esp_name=v end);  Y=Y+34
+    _row("  Distância",    CFG.esp_dist, Y, function(v) CFG.esp_dist=v end);  Y=Y+34
+    _row("  HP Bar",       CFG.esp_hp,   Y, function(v) CFG.esp_hp=v end);    Y=Y+38
 
-    _sec("AIMBOT",Y); Y=Y+24
-    _row("  Aimbot Master",  CFG.aim,           Y, function(v) CFG.aim=v end);           Y=Y+32
-    _row("  Team Check",     CFG.aim_teamcheck, Y, function(v) CFG.aim_teamcheck=v end); Y=Y+36
+    _sec("AIMBOT",Y); Y=Y+26
+    _row("  Aimbot Master",  CFG.aim,           Y, function(v) CFG.aim=v end);           Y=Y+34
+    _row("  Team Check",     CFG.aim_teamcheck, Y, function(v) CFG.aim_teamcheck=v end); Y=Y+38
 
-    _sec("FOV CONTROL",Y); Y=Y+24
-    _fov_slider(Y); Y=Y+52
+    _sec("FOV CONTROL",Y); Y=Y+26
+    _fov_slider(Y); Y=Y+54
 
     local info=Instance.new("TextLabel")
-    info.Size=UDim2.new(1,-20,0,14)
-    info.Position=UDim2.new(0,10,0,Y)
+    info.Size=UDim2.new(1,-16,0,14)
+    info.Position=UDim2.new(0,8,0,Y)
     info.BackgroundTransparency=1
-    info.Text="X = toggle aim  ·  RMB (hold) = aim  ·  RShift = hide"
-    info.TextColor3=Color3.fromRGB(55,55,55)
+    info.Text="X = toggle aim  ·  RMB = aim  ·  RShift = hide"
+    info.TextColor3=Color3.fromRGB(40,80,140)
     info.TextSize=9; info.Font=Enum.Font.Gotham
     info.TextXAlignment=Enum.TextXAlignment.Center
     info.ZIndex=3; info.Parent=win
     Y=Y+20
 
     local db=Instance.new("TextButton")
-    db.Size=UDim2.new(1,-20,0,30)
-    db.Position=UDim2.new(0,10,0,Y)
-    db.BackgroundColor3=Color3.fromRGB(14,3,3)
+    db.Size=UDim2.new(1,-16,0,32)
+    db.Position=UDim2.new(0,8,0,Y)
+    db.BackgroundColor3=Color3.fromRGB(18,4,4)
     db.Text="✖  DESTRUCT"
     db.TextColor3=NR
     db.TextSize=13; db.Font=Enum.Font.GothamBold
     db.BorderSizePixel=0; db.ZIndex=3; db.Parent=win
-    _corner(db,6)
-    local ds=_stroke(db,NR,2,0)
-    table.insert(_pulse_fns,_mk_pulse(ds,0,0.6,1.6))
-    db.MouseEnter:Connect(function() db.BackgroundColor3=Color3.fromRGB(36,6,6) end)
-    db.MouseLeave:Connect(function() db.BackgroundColor3=Color3.fromRGB(14,3,3) end)
+    _corner(db,7)
+    local ds1=Instance.new("UIStroke")
+    ds1.Color=NR; ds1.Thickness=1.5; ds1.Transparency=0
+    ds1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; ds1.Parent=db
+    local ds2=Instance.new("UIStroke")
+    ds2.Color=NR; ds2.Thickness=6; ds2.Transparency=0.5
+    ds2.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; ds2.Parent=db
+    table.insert(_pulse_fns,function(t)
+        pcall(function() ds2.Transparency=0.3+math.abs(math.sin(t*1.6))*0.45 end)
+    end)
+    db.MouseEnter:Connect(function() db.BackgroundColor3=Color3.fromRGB(40,8,8) end)
+    db.MouseLeave:Connect(function() db.BackgroundColor3=Color3.fromRGB(18,4,4) end)
     db.MouseButton1Click:Connect(function()
         _DESTROYED=true
         _clr()
@@ -369,7 +491,7 @@ local function _build_gui()
         pcall(function() _gui_ref:Destroy() end)
     end)
 
-    win.Size=UDim2.new(0,300,0,Y+44)
+    win.Size=UDim2.new(0,300,0,Y+46)
     _win_ref=win
 end
 
@@ -484,201 +606,125 @@ local function _esp()
 end
 
 -- ═══ AIMBOT v3 ════════════════════════════════════════════════════
---
--- DESIGN:
---   • Sem CameraType.Scriptable — câmera Custom o tempo todo
---   • Target lock: persiste o alvo enquanto ele tiver dentro do FOV
---     e estiver vivo, em vez de recalcular todo frame (evita flicker)
---   • Predição: Kalman-lite — média exponencial da velocidade (EMA)
---     com ganho separado para aceleração, muito mais estável que lerp puro
---   • Smoothing exponencial: alpha = 1 - exp(-k * dt)
---     — independente de framerate, não robótico, gruda gradualmente
---   • Boost de snap perto do alvo: quando o ângulo é < 2°, força alpha
---     alto para não ficar oscilando em volta da head
+local AIM_PRED_GAIN  = 3.0
+local AIM_EMA_ALPHA  = 0.25
+local AIM_SNAP_ANGLE = 0.035
+local AIM_K_BASE     = 18.0
 
--- constantes de tuning (não expor no CFG pra não poluir a UI)
-local AIM_PRED_GAIN   = 3.0   -- multiplicador de predição (frames à frente)
-local AIM_EMA_ALPHA   = 0.25  -- suavização da velocidade estimada (0=lento,1=instantâneo)
-local AIM_SNAP_ANGLE  = 0.035 -- rad (~2°): abaixo disso força snap total
-local AIM_K_BASE      = 18.0  -- constante exponencial base (maior = mais rápido)
-
--- estado do lock
-local _lock_target  = nil   -- Player travado atualmente
-local _lock_lost    = 0     -- tempo (s) desde que perdeu visão (grace period)
-local LOCK_GRACE    = 0.12  -- segundos de grace antes de soltar o alvo
-
--- estado de predição (por alvo — reseta ao trocar)
-local _ema_vel      = Vector3.new(0,0,0)
-local _last_pos     = nil
+local _lock_target = nil
+local _lock_lost   = 0
+local LOCK_GRACE   = 0.12
+local _ema_vel     = Vector3.new(0,0,0)
+local _last_pos    = nil
 
 local function _in_fov(part)
-    local center = _cam.ViewportSize / 2
-    local sp, inv, d = _w2s(part.Position)
-    if not inv or d <= 0 then return false, 0 end
-    local dist_px = (sp - center).Magnitude
-    return dist_px <= CFG.aim_fov, dist_px
+    local center=_cam.ViewportSize/2
+    local sp,inv,d=_w2s(part.Position)
+    if not inv or d<=0 then return false,0 end
+    local dist_px=(sp-center).Magnitude
+    return dist_px<=CFG.aim_fov, dist_px
 end
 
 local function _pick_target()
-    -- se o alvo travado ainda é válido, mantém
     if _lock_target then
-        local char = _lock_target.Character
-        local part = char and char:FindFirstChild(CFG.aim_target)
+        local char=_lock_target.Character
+        local part=char and char:FindFirstChild(CFG.aim_target)
         if part and _alive(char) and not _smt(_lock_target) then
-            local ok, _ = _in_fov(part)
-            if ok then
-                _lock_lost = 0
-                return _lock_target
-            end
+            local ok,_=_in_fov(part)
+            if ok then _lock_lost=0; return _lock_target end
         end
-        -- perdeu visão — aplica grace period antes de soltar
-        _lock_lost = _lock_lost + (1/60)  -- aproximado; atualizado em _aimbot(dt)
-        if _lock_lost < LOCK_GRACE then
-            return _lock_target  -- ainda dentro do grace
-        end
-        -- solta o alvo
-        _lock_target = nil
-        _lock_lost   = 0
-        _ema_vel     = Vector3.new(0,0,0)
-        _last_pos    = nil
+        _lock_lost=_lock_lost+(1/60)
+        if _lock_lost<LOCK_GRACE then return _lock_target end
+        _lock_target=nil; _lock_lost=0
+        _ema_vel=Vector3.new(0,0,0); _last_pos=nil
     end
-
-    -- procura novo alvo mais próximo do centro do FOV
-    local center = _cam.ViewportSize / 2
-    local best, best_dist = nil, CFG.aim_fov
-    for _, p in ipairs(_P:GetPlayers()) do
-        if p == _lp or _smt(p) then continue end
-        local char = p.Character
+    local center=_cam.ViewportSize/2
+    local best,best_dist=nil,CFG.aim_fov
+    for _,p in ipairs(_P:GetPlayers()) do
+        if p==_lp or _smt(p) then continue end
+        local char=p.Character
         if not char or not _alive(char) then continue end
-        local part = char:FindFirstChild(CFG.aim_target)
+        local part=char:FindFirstChild(CFG.aim_target)
         if not part then continue end
-        local ok, d = _in_fov(part)
-        if ok and d < best_dist then
-            best_dist = d
-            best = p
-        end
+        local ok,d=_in_fov(part)
+        if ok and d<best_dist then best_dist=d; best=p end
     end
-
     if best then
-        _lock_target = best
-        _lock_lost   = 0
-        _ema_vel     = Vector3.new(0,0,0)
-        _last_pos    = nil
+        _lock_target=best; _lock_lost=0
+        _ema_vel=Vector3.new(0,0,0); _last_pos=nil
     end
     return best
 end
 
 local function _aimbot(dt)
     if not CFG.aim then
-        _lock_target = nil
-        _lock_lost   = 0
-        _ema_vel     = Vector3.new(0,0,0)
-        _last_pos    = nil
+        _lock_target=nil; _lock_lost=0
+        _ema_vel=Vector3.new(0,0,0); _last_pos=nil
         return
     end
-
-    local holding = _UIS:IsMouseButtonPressed(CFG.aim_hold)
+    local holding=_UIS:IsMouseButtonPressed(CFG.aim_hold)
     if not holding then
-        -- não reseta o lock ao soltar RMB, só para de mover a câmera
-        -- (melhora UX: ao apertar de novo já retoma o alvo)
-        _lock_lost = _lock_lost + dt
-        if _lock_lost >= LOCK_GRACE then
-            _lock_target = nil
-            _lock_lost   = 0
-            _ema_vel     = Vector3.new(0,0,0)
-            _last_pos    = nil
+        _lock_lost=_lock_lost+dt
+        if _lock_lost>=LOCK_GRACE then
+            _lock_target=nil; _lock_lost=0
+            _ema_vel=Vector3.new(0,0,0); _last_pos=nil
         end
         return
     end
-
-    -- atualiza grace com dt real
     if _lock_target then
-        local char = _lock_target.Character
-        local part = char and char:FindFirstChild(CFG.aim_target)
+        local char=_lock_target.Character
+        local part=char and char:FindFirstChild(CFG.aim_target)
         if part and _alive(char) then
-            local ok, _ = _in_fov(part)
-            if ok then _lock_lost = 0
-            else        _lock_lost = _lock_lost + dt end
+            local ok,_=_in_fov(part)
+            if ok then _lock_lost=0 else _lock_lost=_lock_lost+dt end
         else
-            _lock_lost = _lock_lost + dt
+            _lock_lost=_lock_lost+dt
         end
-        if _lock_lost >= LOCK_GRACE then
-            _lock_target = nil
-            _lock_lost   = 0
-            _ema_vel     = Vector3.new(0,0,0)
-            _last_pos    = nil
+        if _lock_lost>=LOCK_GRACE then
+            _lock_target=nil; _lock_lost=0
+            _ema_vel=Vector3.new(0,0,0); _last_pos=nil
         end
     end
-
-    local target = _pick_target()
-    if not target then return end
-
-    local char = target.Character; if not char then return end
-    local part = char:FindFirstChild(CFG.aim_target); if not part then return end
-
-    -- ── PREDIÇÃO: EMA de velocidade ──────────────────────────────
-    -- calcula velocidade real entre frames (mais preciso que AssemblyLinearVelocity
-    -- que pode ter jitter de network)
-    local cur_pos = part.Position
+    local target=_pick_target(); if not target then return end
+    local char=target.Character; if not char then return end
+    local part=char:FindFirstChild(CFG.aim_target); if not part then return end
+    local cur_pos=part.Position
     if _last_pos then
-        local raw_vel = (cur_pos - _last_pos) / math.max(dt, 0.001)
-        -- EMA: suaviza a estimativa de velocidade frame a frame
-        _ema_vel = _ema_vel + (raw_vel - _ema_vel) * AIM_EMA_ALPHA
+        local raw_vel=(cur_pos-_last_pos)/math.max(dt,0.001)
+        _ema_vel=_ema_vel+(raw_vel-_ema_vel)*AIM_EMA_ALPHA
     end
-    _last_pos = cur_pos
-
-    -- posição predita: posição atual + velocidade suavizada * tempo à frente
-    local predicted = cur_pos + _ema_vel * dt * AIM_PRED_GAIN
-
-    -- ── CÂMERA: rotação sem mudar CameraType ─────────────────────
-    local cur = _cam.CFrame
-    local dir = (predicted - cur.Position)
-    if dir.Magnitude < 0.001 then return end
-    dir = dir.Unit
-
-    local tgt_cf = CFrame.new(cur.Position, cur.Position + dir)
-
-    -- ângulo entre direção atual e alvo
-    local dot = math.clamp(cur.LookVector:Dot(tgt_cf.LookVector), -1, 1)
-    local angle = math.acos(dot)   -- rad
-
-    -- smoothing exponencial: alpha = 1 - exp(-k * dt)
-    -- k aumenta quando estamos longe (chega rápido), diminui perto (suave)
-    -- CFG.aim_smooth: 0 = máximo snap (k alto), 1 = muito suave (k baixo)
-    local k_scale = math.clamp(1.0 - CFG.aim_smooth, 0.05, 1.0)
-    -- boost de distância: longe do alvo acelera o lock
-    local angle_boost = math.clamp(angle * 8.0, 0.0, 3.0)
-    local k = AIM_K_BASE * k_scale * (1.0 + angle_boost)
-    local alpha = 1.0 - math.exp(-k * dt)
-
-    -- snap forçado quando está quase no alvo (evita oscilação residual)
-    if angle < AIM_SNAP_ANGLE then
-        alpha = 1.0
-    end
-
-    alpha = math.clamp(alpha, 0.0, 1.0)
-
-    pcall(function()
-        _cam.CFrame = cur:Lerp(tgt_cf, alpha)
-    end)
+    _last_pos=cur_pos
+    local predicted=cur_pos+_ema_vel*dt*AIM_PRED_GAIN
+    local cur=_cam.CFrame
+    local dir=(predicted-cur.Position)
+    if dir.Magnitude<0.001 then return end
+    dir=dir.Unit
+    local tgt_cf=CFrame.new(cur.Position,cur.Position+dir)
+    local dot=math.clamp(cur.LookVector:Dot(tgt_cf.LookVector),-1,1)
+    local angle=math.acos(dot)
+    local k_scale=math.clamp(1.0-CFG.aim_smooth,0.05,1.0)
+    local angle_boost=math.clamp(angle*8.0,0.0,3.0)
+    local k=AIM_K_BASE*k_scale*(1.0+angle_boost)
+    local alpha=1.0-math.exp(-k*dt)
+    if angle<AIM_SNAP_ANGLE then alpha=1.0 end
+    alpha=math.clamp(alpha,0.0,1.0)
+    pcall(function() _cam.CFrame=cur:Lerp(tgt_cf,alpha) end)
 end
 
 -- ═══ INIT ═════════════════════════════════════════════════════════
 _build_gui()
 
-_UIS.InputBegan:Connect(function(input, gpe)
+_UIS.InputBegan:Connect(function(input,gpe)
     if gpe or _DESTROYED then return end
-    if input.KeyCode == CFG.gui_toggle then
-        _gui_vis = not _gui_vis
-        if _win_ref then _win_ref.Visible = _gui_vis end
+    if input.KeyCode==CFG.gui_toggle then
+        _gui_vis=not _gui_vis
+        if _win_ref then _win_ref.Visible=_gui_vis end
     end
-    if input.KeyCode == CFG.aim_toggle then
-        CFG.aim = not CFG.aim
+    if input.KeyCode==CFG.aim_toggle then
+        CFG.aim=not CFG.aim
         if not CFG.aim then
-            _lock_target = nil
-            _lock_lost   = 0
-            _ema_vel     = Vector3.new(0,0,0)
-            _last_pos    = nil
+            _lock_target=nil; _lock_lost=0
+            _ema_vel=Vector3.new(0,0,0); _last_pos=nil
         end
         pcall(function()
             _SG:SetCore("SendNotification",{
@@ -692,20 +738,18 @@ end)
 
 _RS.RenderStepped:Connect(function(dt)
     if _DESTROYED then return end
-    _t = _t + dt
-    _cam = workspace.CurrentCamera
-    for _, fn in ipairs(_pulse_fns) do fn(_t) end
-    _fc.Position = _cam.ViewportSize / 2
-    _fc.Visible  = CFG.aim
+    _t=_t+dt
+    _cam=workspace.CurrentCamera
+    for _,fn in ipairs(_pulse_fns) do fn(_t) end
+    _fc.Position=_cam.ViewportSize/2
+    _fc.Visible=CFG.aim
     _esp()
     _aimbot(dt)
 end)
 
 _lp.CharacterAdded:Connect(function()
     if _DESTROYED then return end
-    _cam        = workspace.CurrentCamera
-    _lock_target = nil
-    _lock_lost   = 0
-    _ema_vel     = Vector3.new(0,0,0)
-    _last_pos    = nil
+    _cam=workspace.CurrentCamera
+    _lock_target=nil; _lock_lost=0
+    _ema_vel=Vector3.new(0,0,0); _last_pos=nil
 end)
