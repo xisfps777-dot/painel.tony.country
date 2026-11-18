@@ -1,4 +1,4 @@
--- core.lua | Roblox LuaU | Solara | v7
+--- core.lua | Roblox LuaU | Solara | v7
 -- Evasão: XOR, string split, junk globals, dead code, constant folding, anti-tamper
 
 -- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
@@ -220,9 +220,9 @@ local function _build_gui()
         row.BackgroundColor3=BG_ROW
         row.BorderSizePixel=0; row.ZIndex=2; row.Parent=win
         _corner(row,7)
-        local rs1,rs2,rs3=_glow_stroke(row,NEON,1,4,10)
-        rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
-        local rpf=nil
+        local _rs=Instance.new("UIStroke")
+        _rs.Color=Color3.fromRGB(35,35,35); _rs.Thickness=1; _rs.Transparency=0
+        _rs.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; _rs.Parent=row
 
         _label(row,text,12,Color3.fromRGB(210,210,210),
             Enum.TextXAlignment.Left,
@@ -247,9 +247,7 @@ local function _build_gui()
                 -- ON: botão branco brilhante, glow full
                 btn.BackgroundColor3=NW
                 btn.TextColor3=Color3.fromRGB(0,0,0); btn.Text="ON"
-                -- glow na row
-                rs1.Transparency=0; rs2.Transparency=0.35; rs3.Transparency=0.65
-                -- glow no botão
+                -- glow só no botão
                 bs1.Transparency=0; bs2.Transparency=0.3; bs3.Transparency=0.6
                 -- pulse no botão
                 if bpf then
@@ -265,34 +263,17 @@ local function _build_gui()
                     end)
                 end
                 table.insert(_pulse_fns,bpf)
-                -- pulse na row
-                if rpf then
-                    for i,fn in ipairs(_pulse_fns) do
-                        if fn==rpf then table.remove(_pulse_fns,i); break end
-                    end
-                end
-                rpf=function(t)
-                    pcall(function()
-                        local v=math.abs(math.sin(t*1.1))
-                        rs2.Transparency=0.25+v*0.3
-                        rs3.Transparency=0.55+v*0.3
-                    end)
-                end
-                table.insert(_pulse_fns,rpf)
             else
                 -- OFF: escuro, sem glow
                 btn.BackgroundColor3=Color3.fromRGB(14,14,14)
                 btn.TextColor3=Color3.fromRGB(90,90,90); btn.Text="OFF"
-                rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
                 bs1.Transparency=1; bs2.Transparency=1; bs3.Transparency=1
-                for _,pf in ipairs({bpf,rpf}) do
-                    if pf then
-                        for i,fn in ipairs(_pulse_fns) do
-                            if fn==pf then table.remove(_pulse_fns,i); break end
-                        end
+                if bpf then
+                    for i,fn in ipairs(_pulse_fns) do
+                        if fn==bpf then table.remove(_pulse_fns,i); break end
                     end
                 end
-                bpf=nil; rpf=nil
+                bpf=nil
             end
         end
         _ref()
@@ -440,29 +421,39 @@ local function _w2s(pos)
     return Vector2.new(s.X,s.Y),inv,s.Z
 end
 local function _bbox(char)
-    local mnx,mny,mxx,mxy=math.huge,math.huge,-math.huge,-math.huge
+    local vp   = _cam.ViewportSize
+    local mnx,mny,mxx,mxy = math.huge,math.huge,-math.huge,-math.huge
     for _,p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
-            local sz=p.Size*0.5; local cf=p.CFrame
+            -- ignora partes gigantes (terreno, veículos, etc.)
+            local sz = p.Size
+            if sz.X>12 or sz.Y>12 or sz.Z>12 then continue end
+            local hs = sz*0.5; local cf = p.CFrame
             for _,o in ipairs({
-                Vector3.new( sz.X, sz.Y, sz.Z),Vector3.new(-sz.X, sz.Y, sz.Z),
-                Vector3.new( sz.X,-sz.Y, sz.Z),Vector3.new(-sz.X,-sz.Y, sz.Z),
-                Vector3.new( sz.X, sz.Y,-sz.Z),Vector3.new(-sz.X, sz.Y,-sz.Z),
-                Vector3.new( sz.X,-sz.Y,-sz.Z),Vector3.new(-sz.X,-sz.Y,-sz.Z),
+                Vector3.new( hs.X, hs.Y, hs.Z),Vector3.new(-hs.X, hs.Y, hs.Z),
+                Vector3.new( hs.X,-hs.Y, hs.Z),Vector3.new(-hs.X,-hs.Y, hs.Z),
+                Vector3.new( hs.X, hs.Y,-hs.Z),Vector3.new(-hs.X, hs.Y,-hs.Z),
+                Vector3.new( hs.X,-hs.Y,-hs.Z),Vector3.new(-hs.X,-hs.Y,-hs.Z),
             }) do
-                local wp=(cf*CFrame.new(o)).Position
-                local sp,inv,d=_w2s(wp)
+                local wp = (cf*CFrame.new(o)).Position
+                local sp,inv,d = _w2s(wp)
                 if inv and d>0 then
-                    if sp.X<mnx then mnx=sp.X end
-                    if sp.Y<mny then mny=sp.Y end
-                    if sp.X>mxx then mxx=sp.X end
-                    if sp.Y>mxy then mxy=sp.Y end
+                    -- clamp no viewport para não explodir a box
+                    local sx = math.clamp(sp.X,-50,vp.X+50)
+                    local sy = math.clamp(sp.Y,-50,vp.Y+50)
+                    if sx<mnx then mnx=sx end
+                    if sy<mny then mny=sy end
+                    if sx>mxx then mxx=sx end
+                    if sy>mxy then mxy=sy end
                 end
             end
         end
     end
     if mnx==math.huge then return nil end
-    return mnx,mny,mxx-mnx,mxy-mny
+    local w,h = mxx-mnx, mxy-mny
+    -- descarta bbox absurda (> metade do viewport)
+    if w>vp.X*0.6 or h>vp.Y*0.6 then return nil end
+    return mnx,mny,w,h
 end
 
 -- ═══ ESP ══════════════════════════════════════════════════════════
