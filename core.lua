@@ -588,29 +588,65 @@ local function _bbox(char)
 end
 
 -- ═══ SKELETON LIMPO ═══════════════════════════════════════════════
--- Uma linha por osso; espessura cai com a distância (3→1.2).
--- Cor segue HP do alvo: verde→amarelo→vermelho.
--- Sem joint dots, sem outline separado — menos chamadas de draw, visual mais nítido.
+-- Busca recursiva de part por nome — cobre sub-Models e rigs custom
+local function _find_part(char, name)
+    -- tenta filho direto primeiro (R15/R6 padrão)
+    local p = char:FindFirstChild(name)
+    if p and p:IsA("BasePart") then return p end
+    -- fallback recursivo (rigs que empacotam parts em sub-Models)
+    return char:FindFirstChild(name, true)
+end
+
+-- Projeta posição mesmo quando atrás da câmera:
+-- WorldToViewportPoint retorna inv=false mas as coordenadas X/Y ainda são
+-- matematicamente corretas para o plano da viewport; só Z pode ser negativo.
+-- Para linhas de skeleton isso é aceitável — a linha aparece cortada na borda
+-- em vez de sumir completamente.
+local function _w2s_force(pos)
+    local s, inv = _cam:WorldToViewportPoint(pos)
+    -- se Z < 0 o ponto está atrás — espelha X/Y para compensar a inversão da projeção
+    if s.Z < 0 then
+        return Vector2.new(
+            -s.X + _cam.ViewportSize.X,
+            -s.Y + _cam.ViewportSize.Y
+        ), false, s.Z
+    end
+    return Vector2.new(s.X, s.Y), inv, s.Z
+end
+
 local function _draw_skel(char, dist)
-    local r15 = char:FindFirstChild("UpperTorso") ~= nil
+    local r15 = char:FindFirstChild("UpperTorso", true) ~= nil
     local bones = r15 and _BONES or _BONES_R6
 
-    -- HP ratio para colorir
     local ratio = 1
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then ratio = math.clamp(hum.Health/hum.MaxHealth, 0, 1) end
     local col = _hp_color(ratio)
 
-    -- espessura inversamente proporcional à distância: 3 a 60u, 1.2 a 600u
+    -- espessura: 3px a 60u → 1.2px a 600u
     local thick = math.clamp(3 - (dist/600)*1.8, 1.2, 3)
 
+    local vp = _cam.ViewportSize
+    local pad = 400  -- px; descarta linhas com ponta muito fora da tela
+
     for _, pair in ipairs(bones) do
-        local a = char:FindFirstChild(pair[1])
-        local b = char:FindFirstChild(pair[2])
+        local a = _find_part(char, pair[1])
+        local b = _find_part(char, pair[2])
         if not (a and b) then continue end
-        local spa, inva, da = _w2s(a.Position)
-        local spb, invb, db2 = _w2s(b.Position)
-        if not (inva and invb and da > 0 and db2 > 0) then continue end
+
+        local spa, inva, da = _w2s_force(a.Position)
+        local spb, invb, db2 = _w2s_force(b.Position)
+
+        -- descarta só se AMBAS as pontas estão atrás (Z<0) — uma ponta fora é ok
+        if da < 0 and db2 < 0 then continue end
+
+        -- descarta linhas grotescamente fora da tela (evita artefatos em 180°)
+        local function _in_range(v)
+            return v.X > -pad and v.X < vp.X+pad
+               and v.Y > -pad and v.Y < vp.Y+pad
+        end
+        if not (_in_range(spa) or _in_range(spb)) then continue end
+
         _nd("Line",{From=spa, To=spb,
             Color=col, Thickness=thick,
             Transparency=0, Visible=true, ZIndex=4})
@@ -631,9 +667,10 @@ local function _esp()
         if dist > CFG.esp_max_dist then continue end
         local sp, inv, depth = _w2s(root.Position)
         if not inv or depth <= 0 then continue end
-        local bx, by, bw, bh = _bbox(char)
-
+        -- skeleton não depende do bbox — roda antes, independente
         if CFG.esp_skel then _draw_skel(char, dist) end
+
+        local bx, by, bw, bh = _bbox(char)
 
         if CFG.esp_box and bx then
             local clen = math.min(bw,bh)*0.22
