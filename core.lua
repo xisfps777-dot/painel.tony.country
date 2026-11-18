@@ -105,36 +105,18 @@ local function _corner(p,r)
     c.CornerRadius=UDim.new(0,r or 6); c.Parent=p
 end
 
--- bordas discretas: sem halo forte, apenas um pulso suave
+-- glow triplo só para botões ON e DESTRUCT
 local function _glow_stroke(parent, color, thick1, thick2, thick3)
     local s1=Instance.new("UIStroke")
-    s1.Color=color; s1.Thickness=thick1 or 1
-    s1.Transparency=0.28
-    s1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
-    s1.Parent=parent
-
+    s1.Color=color; s1.Thickness=thick1 or 1.5; s1.Transparency=0
+    s1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; s1.Parent=parent
     local s2=Instance.new("UIStroke")
-    s2.Color=color; s2.Thickness=thick2 or 2
-    s2.Transparency=0.78
-    s2.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
-    s2.Parent=parent
-
+    s2.Color=color; s2.Thickness=thick2 or 4; s2.Transparency=0.45
+    s2.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; s2.Parent=parent
     local s3=Instance.new("UIStroke")
-    s3.Color=color; s3.Thickness=thick3 or 4
-    s3.Transparency=0.94
-    s3.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
-    s3.Parent=parent
-
+    s3.Color=color; s3.Thickness=thick3 or 10; s3.Transparency=0.72
+    s3.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; s3.Parent=parent
     return s1, s2, s3
-end
-
-local function _mk_pulse3(s1,s2,s3, base1,base2,base3, amp,spd)
-    return function(t)
-        local v=(math.sin(t*spd)+1)/2
-        pcall(function() s1.Transparency=math.clamp(base1+v*amp*0.18,0,1) end)
-        pcall(function() s2.Transparency=math.clamp(base2+v*amp*0.22,0,1) end)
-        pcall(function() s3.Transparency=math.clamp(base3+v*amp*0.25,0,1) end)
-    end
 end
 
 local function _label(parent,text,size,color,xa,pos,sz,zi,bold)
@@ -150,21 +132,7 @@ local function _label(parent,text,size,color,xa,pos,sz,zi,bold)
     return l
 end
 
--- linha neon decorativa (glow de 3 passes em Drawing)
-local function _neon_line_h(parent, y, r, g, b)
-    local col = Color3.fromRGB(r,g,b)
-    local line = Instance.new("Frame")
-    line.Size=UDim2.new(1,-20,0,2)
-    line.Position=UDim2.new(0,10,0,y)
-    line.BackgroundColor3=col
-    line.BorderSizePixel=0; line.ZIndex=4; line.Parent=parent
-    -- glow via UIStroke na linha
-    local s=Instance.new("UIStroke")
-    s.Color=col; s.Thickness=6; s.Transparency=0.55
-    s.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
-    s.Parent=line
-    return line, s
-end
+
 
 -- ═══ BUILD GUI ════════════════════════════════════════════════════
 local function _build_gui()
@@ -196,9 +164,10 @@ local function _build_gui()
     win.ClipsDescendants=false; win.Parent=gui
     _corner(win,10)
 
-    -- borda neon azul tripla camada (glow forte)
-    local ws1,ws2,ws3=_glow_stroke(win, NEON, 1, 1.5, 2.5)
-    table.insert(_pulse_fns,_mk_pulse3(ws1,ws2,ws3, 0.42,0.90,0.98, 0.08,0.85))
+    -- borda simples, sem brilho
+    local _ws=Instance.new("UIStroke")
+    _ws.Color=Color3.fromRGB(30,30,30); _ws.Thickness=1; _ws.Transparency=0
+    _ws.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; _ws.Parent=win
 
     -- ── HEADER ───────────────────────────────────────────────────
     local hdr=Instance.new("Frame")
@@ -207,47 +176,25 @@ local function _build_gui()
     hdr.BorderSizePixel=0; hdr.ZIndex=2; hdr.Parent=win
     _corner(hdr,10)
 
-    -- linha topo do header — neon azul brilhante
-    local htop,hts=_neon_line_h(hdr,-1,0,180,255)
-    htop.Size=UDim2.new(1,0,0,2); htop.Position=UDim2.new(0,0,0,0)
-    table.insert(_pulse_fns,function(t)
-        pcall(function() hts.Transparency=0.3+math.abs(math.sin(t*1.2))*0.4 end)
-    end)
-
-    -- título com glow de texto
+    -- título sem glow
     local title=_label(hdr,"TONY COUNTRY",19,NW,
         Enum.TextXAlignment.Center,
         UDim2.new(0,0,0,10),UDim2.new(1,0,0,28),4,true)
-    -- shadow de glow no título (TextStroke)
-    title.TextStrokeColor3=NEON
-    title.TextStrokeTransparency=0.4
-    table.insert(_pulse_fns,function(t)
-        pcall(function()
-            title.TextStrokeTransparency=0.2+math.abs(math.sin(t*1.1))*0.4
-        end)
-    end)
+    title.TextStrokeTransparency=1
 
     local sub=_label(hdr,"✦  ESP  ·  AIMBOT  ✦",9,
         Color3.fromRGB(160,160,160),
         Enum.TextXAlignment.Center,
         UDim2.new(0,0,0,38),UDim2.new(1,0,0,16),3,false)
-    sub.TextStrokeColor3=NEON
-    sub.TextStrokeTransparency=0.6
+    sub.TextStrokeTransparency=1
 
-    -- separador
+    -- separador simples
     local sep=Instance.new("Frame")
     sep.Size=UDim2.new(1,-16,0,1)
     sep.Position=UDim2.new(0,8,0,62)
-    sep.BackgroundColor3=NEON
-    sep.BackgroundTransparency=0.3
+    sep.BackgroundColor3=Color3.fromRGB(35,35,35)
+    sep.BackgroundTransparency=0
     sep.BorderSizePixel=0; sep.ZIndex=3; sep.Parent=win
-    -- glow no sep
-    local seps=Instance.new("UIStroke")
-    seps.Color=NEON; seps.Thickness=4; seps.Transparency=0.6
-    seps.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; seps.Parent=sep
-    table.insert(_pulse_fns,function(t)
-        pcall(function() seps.Transparency=0.4+math.abs(math.sin(t*1.3))*0.4 end)
-    end)
 
     -- ── SECTION LABEL ────────────────────────────────────────────
     local function _sec(text,y)
@@ -257,18 +204,10 @@ local function _build_gui()
         f.BackgroundColor3=BG_SEC
         f.BorderSizePixel=0; f.ZIndex=2; f.Parent=win
         _corner(f,5)
-        -- borda neon azul dupla
-        local fs1,fs2,_=_glow_stroke(f,NEON,1,1.5,0)
-        fs1.Transparency=0.48
-        fs2.Transparency=0.93
-        table.insert(_pulse_fns,function(t)
-            local v=(math.sin(t*1.0)+1)/2
-            pcall(function()
-                fs1.Transparency=0.42+v*0.08
-                fs2.Transparency=0.91+v*0.06
-            end)
-        end)
-        _label(f,"  "..text,11,NEON,
+        local _fs=Instance.new("UIStroke")
+        _fs.Color=Color3.fromRGB(35,35,35); _fs.Thickness=1; _fs.Transparency=0
+        _fs.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; _fs.Parent=f
+        _label(f,"  "..text,11,NW,
             Enum.TextXAlignment.Left,
             UDim2.new(0,0,0,0),UDim2.new(1,0,1,0),3,true)
     end
@@ -281,7 +220,7 @@ local function _build_gui()
         row.BackgroundColor3=BG_ROW
         row.BorderSizePixel=0; row.ZIndex=2; row.Parent=win
         _corner(row,7)
-        local rs1,rs2,rs3=_glow_stroke(row,NEON,1,1.5,2.5)
+        local rs1,rs2,rs3=_glow_stroke(row,NEON,1,4,10)
         rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
         local rpf=nil
 
@@ -298,7 +237,7 @@ local function _build_gui()
         btn.TextSize=12; btn.Font=Enum.Font.GothamBold
         btn.BorderSizePixel=0; btn.ZIndex=4; btn.Parent=row
         _corner(btn,6)
-        local bs1,bs2,bs3=_glow_stroke(btn,NEON,1,1.5,2.5)
+        local bs1,bs2,bs3=_glow_stroke(btn,NEON,1,4,10)
         bs1.Transparency=1; bs2.Transparency=1; bs3.Transparency=1
         local bpf=nil
 
@@ -309,9 +248,9 @@ local function _build_gui()
                 btn.BackgroundColor3=NW
                 btn.TextColor3=Color3.fromRGB(0,0,0); btn.Text="ON"
                 -- glow na row
-                rs1.Transparency=0.42; rs2.Transparency=0.90; rs3.Transparency=0.98
+                rs1.Transparency=0; rs2.Transparency=0.35; rs3.Transparency=0.65
                 -- glow no botão
-                bs1.Transparency=0.42; bs2.Transparency=0.90; bs3.Transparency=0.98
+                bs1.Transparency=0; bs2.Transparency=0.3; bs3.Transparency=0.6
                 -- pulse no botão
                 if bpf then
                     for i,fn in ipairs(_pulse_fns) do
@@ -320,9 +259,9 @@ local function _build_gui()
                 end
                 bpf=function(t)
                     pcall(function()
-                        local v=(math.sin(t*1.4)+1)/2
-                        bs2.Transparency=0.88+v*0.06
-                        bs3.Transparency=0.97+v*0.02
+                        local v=math.abs(math.sin(t*2.2))
+                        bs2.Transparency=0.2+v*0.3
+                        bs3.Transparency=0.5+v*0.3
                     end)
                 end
                 table.insert(_pulse_fns,bpf)
@@ -334,10 +273,9 @@ local function _build_gui()
                 end
                 rpf=function(t)
                     pcall(function()
-                        local v=(math.sin(t*1.0)+1)/2
-                        rs1.Transparency=0.40+v*0.08
-                        rs2.Transparency=0.90+v*0.06
-                        rs3.Transparency=0.97+v*0.02
+                        local v=math.abs(math.sin(t*1.1))
+                        rs2.Transparency=0.25+v*0.3
+                        rs3.Transparency=0.55+v*0.3
                     end)
                 end
                 table.insert(_pulse_fns,rpf)
@@ -369,14 +307,9 @@ local function _build_gui()
         frame.BackgroundColor3=BG_ROW
         frame.BorderSizePixel=0; frame.ZIndex=2; frame.Parent=win
         _corner(frame,7)
-        local f1,f2=_glow_stroke(frame,NEON,1,1.5,0)
-        table.insert(_pulse_fns,function(t)
-            local v=(math.sin(t*1.0)+1)/2
-            pcall(function()
-                f1.Transparency=0.46+v*0.07
-                f2.Transparency=0.94+v*0.04
-            end)
-        end)
+        local _sfs=Instance.new("UIStroke")
+        _sfs.Color=Color3.fromRGB(35,35,35); _sfs.Thickness=1; _sfs.Transparency=0
+        _sfs.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; _sfs.Parent=frame
 
         _label(frame,"  FOV",12,Color3.fromRGB(210,210,210),
             Enum.TextXAlignment.Left,
@@ -387,7 +320,7 @@ local function _build_gui()
         val_lbl.Position=UDim2.new(0.7,0,0,2)
         val_lbl.BackgroundTransparency=1
         val_lbl.Text=tostring(CFG.aim_fov)
-        val_lbl.TextColor3=NEON
+        val_lbl.TextColor3=NW
         val_lbl.TextSize=12; val_lbl.Font=Enum.Font.GothamBold
         val_lbl.TextXAlignment=Enum.TextXAlignment.Right
         val_lbl.TextStrokeTransparency=1
@@ -405,13 +338,6 @@ local function _build_gui()
         fill.BackgroundColor3=NEON
         fill.BorderSizePixel=0; fill.ZIndex=4; fill.Parent=track
         _corner(fill,3)
-        -- glow no fill
-        local fs1=Instance.new("UIStroke")
-        fs1.Color=NEON; fs1.Thickness=4; fs1.Transparency=0.5
-        fs1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; fs1.Parent=fill
-        table.insert(_pulse_fns,function(t)
-            pcall(function() fs1.Transparency=0.3+math.abs(math.sin(t*1.4))*0.4 end)
-        end)
 
         local handle=Instance.new("TextButton")
         handle.Size=UDim2.new(0,14,0,14)
@@ -420,13 +346,6 @@ local function _build_gui()
         handle.Text=""; handle.BorderSizePixel=0
         handle.ZIndex=5; handle.Parent=track
         _corner(handle,7)
-        -- glow no handle
-        local hs1=Instance.new("UIStroke")
-        hs1.Color=NEON; hs1.Thickness=5; hs1.Transparency=0.4
-        hs1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; hs1.Parent=handle
-        table.insert(_pulse_fns,function(t)
-            pcall(function() hs1.Transparency=0.2+math.abs(math.sin(t*1.4))*0.4 end)
-        end)
 
         local dragging=false
         handle.MouseButton1Down:Connect(function() dragging=true end)
@@ -486,13 +405,13 @@ local function _build_gui()
     db.BorderSizePixel=0; db.ZIndex=3; db.Parent=win
     _corner(db,7)
     local ds1=Instance.new("UIStroke")
-    ds1.Color=NR; ds1.Thickness=1; ds1.Transparency=0.42
+    ds1.Color=NR; ds1.Thickness=1.5; ds1.Transparency=0
     ds1.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; ds1.Parent=db
     local ds2=Instance.new("UIStroke")
-    ds2.Color=NR; ds2.Thickness=1.5; ds2.Transparency=0.93
+    ds2.Color=NR; ds2.Thickness=6; ds2.Transparency=0.5
     ds2.ApplyStrokeMode=Enum.ApplyStrokeMode.Border; ds2.Parent=db
     table.insert(_pulse_fns,function(t)
-        pcall(function() ds2.Transparency=0.90+((math.sin(t*0.9)+1)/2)*0.06 end)
+        pcall(function() ds2.Transparency=0.3+math.abs(math.sin(t*1.6))*0.45 end)
     end)
     db.MouseEnter:Connect(function() db.BackgroundColor3=Color3.fromRGB(40,8,8) end)
     db.MouseLeave:Connect(function() db.BackgroundColor3=Color3.fromRGB(18,4,4) end)
