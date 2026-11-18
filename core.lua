@@ -52,18 +52,18 @@ local LP         = Players.LocalPlayer
 local State = {
     ESPBox        = false,
     ESPName       = false,
-    ESPHealth     = false,
+    ESPHealth     = false,   -- texto "120 hp"
+    ESPHPBar      = false,   -- barra visual de vida
     ESPDistance   = false,
-    SkeletonESP   = false,
     AimbotEnabled = false,
     FOV           = 120,
     Smooth        = 0.18,
     AimbotKey     = Enum.KeyCode.LeftAlt,
     ESPObjects    = {},
-    SkelObjects   = {},
     FOVCircle     = nil,
     Connections   = {},
     Destroyed     = false,
+    PanelVisible  = true,
 }
 
 -- ============================================================
@@ -252,19 +252,19 @@ local function UpdateESP(player, obj)
     local hpRatio = _math.clamp(hum.Health / _math.max(1, hum.MaxHealth), 0, 1)
     local barH = h * hpRatio
 
+    -- HP bar — toggle independente
     obj.HPBarBG.Size     = Vector2.new(barW, h)
     obj.HPBarBG.Position = Vector2.new(barX, top2d.Y)
-    obj.HPBarBG.Visible  = State.ESPHealth
+    obj.HPBarBG.Visible  = State.ESPHPBar
 
     obj.HPBar.Size     = Vector2.new(barW, barH)
     obj.HPBar.Position = Vector2.new(barX, top2d.Y + (h - barH))
-    -- cor da barra: verde → amarelo → vermelho
     local r = _math.floor(255 * (1 - hpRatio))
     local g = _math.floor(255 * hpRatio)
     obj.HPBar.Color   = Color3.fromRGB(_math.clamp(r*2,0,255), _math.clamp(g*2,0,255), 60)
-    obj.HPBar.Visible = State.ESPHealth
+    obj.HPBar.Visible = State.ESPHPBar
 
-    -- hp text
+    -- hp text — toggle independente
     obj.Health.Text     = _math.floor(hum.Health) .. " hp"
     obj.Health.Position = Vector2.new(barX - 2, top2d.Y + h - 12)
     obj.Health.Center   = true
@@ -277,48 +277,7 @@ local function UpdateESP(player, obj)
     obj.Distance.Visible  = State.ESPDistance
 end
 
--- ============================================================
--- SKELETON
--- ============================================================
-local BONES = {
-    {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
-    {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
-    {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
-    {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
-    {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
-}
 
-local function CreateSkeleton(player)
-    local lines = {}
-    for i = 1, #BONES do lines[i] = NewLine(Color3.fromRGB(255,255,255), 1.1) end
-    State.SkelObjects[player] = lines
-end
-
-local function RemoveSkeleton(player)
-    local lines = State.SkelObjects[player]; if not lines then return end
-    for _, l in _ipairs(lines) do l:Remove() end
-    State.SkelObjects[player] = nil
-end
-
-local function UpdateSkeleton(player, lines)
-    if _screenshotting or not IsAlive(player) then
-        for _, l in _ipairs(lines) do l.Visible = false end; return
-    end
-    local char = player.Character
-    for i, pair in _ipairs(BONES) do
-        local a = char:FindFirstChild(pair[1])
-        local b = char:FindFirstChild(pair[2])
-        local l = lines[i]
-        if a and b then
-            local a2d, aZ, aOn = W2V(a.Position)
-            local b2d, bZ, bOn = W2V(b.Position)
-            if aOn and bOn and aZ > 0 and bZ > 0 then
-                l.From = a2d; l.To = b2d
-                l.Visible = State.SkeletonESP
-            else l.Visible = false end
-        else l.Visible = false end
-    end
-end
 
 -- ============================================================
 -- AIMBOT
@@ -365,8 +324,8 @@ end
 -- ============================================================
 -- PLAYER MANAGEMENT
 -- ============================================================
-local function AddPlayer(p) CreateESP(p); CreateSkeleton(p) end
-local function RemPlayer(p) RemoveESP(p); RemoveSkeleton(p) end
+local function AddPlayer(p) CreateESP(p) end
+local function RemPlayer(p) RemoveESP(p) end
 
 for _, p in _ipairs(Players:GetPlayers()) do
     if p ~= LP then AddPlayer(p) end
@@ -391,13 +350,11 @@ end)
 local _slot = 0
 local renderConn = RunService[STR_RENDERSTEPPED]:Connect(function()
     if State.Destroyed then return end
-    _slot = (_slot + 1) % 3
+    _slot = (_slot + 1) % 2
     UpdateFOVCircle()
     RunAimbot()
     if _slot == 0 then
         for p, obj in _pairs(State.ESPObjects) do UpdateESP(p, obj) end
-    elseif _slot == 1 then
-        for p, lines in _pairs(State.SkelObjects) do UpdateSkeleton(p, lines) end
     end
 end)
 _table.insert(State.Connections, renderConn)
@@ -445,19 +402,15 @@ SG.Parent = game:GetService(STR_COREGUI)
 local movedHUI = ProtectGui(SG)
 if not movedHUI then _pcall(function() SG.IgnoreGuiInset = true end) end
 
--- outer glow aura
-local Aura = Frame(SG, UDim2.new(0,322,0,580), UDim2.new(0.5,-161,0.5,-290), C.BORDER, 0.93)
+-- outer glow aura — começa invisível, dimensionada depois de totalH ser calculado
+local Aura = Frame(SG, UDim2.new(0,322,0,10), UDim2.new(0.5,-161,0.5,-5), C.BORDER, 1)
 Corner(Aura, 10)
 
 -- main
-local MF = Frame(SG, UDim2.new(0,316,0,574), UDim2.new(0.5,-158,0.5,-287), C.BG)
+local MF = Frame(SG, UDim2.new(0,316,0,10), UDim2.new(0.5,-158,0.5,-5), C.BG)
 Corner(MF, 8)
 Stroke(MF, C.BORDER, 1.5)
 MF.Active = true; MF.Draggable = true
-
--- inner subtle gradient strip (decoration top)
-local TopAccent = Frame(MF, UDim2.new(1,0,0,2), UDim2.new(0,0,0,0), C.BORDER, 0)
-TopAccent.BackgroundColor3 = C.BORDER
 
 -- ============================================================
 -- HEADER
@@ -651,11 +604,11 @@ end
 
 -- ESP
 SectionLabel("— ESP")
-MakeToggle("Box ESP",      function() return State.ESPBox      end, function(v) State.ESPBox      = v end)
-MakeToggle("Name ESP",     function() return State.ESPName     end, function(v) State.ESPName     = v end)
-MakeToggle("Health ESP",   function() return State.ESPHealth   end, function(v) State.ESPHealth   = v end)
-MakeToggle("Distance ESP", function() return State.ESPDistance end, function(v) State.ESPDistance = v end)
-MakeToggle("Skeleton ESP", function() return State.SkeletonESP end, function(v) State.SkeletonESP = v end)
+MakeToggle("Box ESP",        function() return State.ESPBox      end, function(v) State.ESPBox      = v end)
+MakeToggle("Name ESP",       function() return State.ESPName     end, function(v) State.ESPName     = v end)
+MakeToggle("Health Text",    function() return State.ESPHealth   end, function(v) State.ESPHealth   = v end)
+MakeToggle("Health Bar",     function() return State.ESPHPBar    end, function(v) State.ESPHPBar    = v end)
+MakeToggle("Distance ESP",   function() return State.ESPDistance end, function(v) State.ESPDistance = v end)
 
 -- AIMBOT
 SectionLabel("— Aimbot")
@@ -726,8 +679,7 @@ DBtn.MouseButton1Click:Connect(function()
     for _, c in _ipairs(State.Connections) do _pcall(function() c:Disconnect() end) end
     _table.clear(State.Connections)
 
-    for p in _pairs(State.ESPObjects)  do RemoveESP(p)      end
-    for p in _pairs(State.SkelObjects) do RemoveSkeleton(p) end
+    for p in _pairs(State.ESPObjects) do RemoveESP(p) end
     if State.FOVCircle then State.FOVCircle:Remove() end
 
     _pcall(function() SG:Destroy() end)
@@ -735,10 +687,25 @@ DBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- resize main frame to content dynamically
+-- resize main frame to content — agora que yOff está final
 -- ============================================================
 local totalH = yOff + 54 + 6 + 16 + 10 + 52 + 20
-MF.Size = UDim2.new(0, 316, 0, totalH)
-Aura.Size = UDim2.new(0, 322, 0, totalH + 6)
-MF.Position = UDim2.new(0.5,-158,0.5,-(totalH/2))
-Aura.Position = UDim2.new(0.5,-161,0.5,-(totalH/2)-3)
+MF.Size      = UDim2.new(0, 316, 0, totalH)
+MF.Position  = UDim2.new(0.5,-158,0.5,-(totalH/2))
+-- Aura: só agora revelada com o tamanho correto
+Aura.Size                    = UDim2.new(0, 322, 0, totalH + 6)
+Aura.Position                = UDim2.new(0.5,-161,0.5,-(totalH/2)-3)
+Aura.BackgroundTransparency  = 0.93   -- glow visível, não mancha
+
+-- ============================================================
+-- LSHIFT: esconder / mostrar painel
+-- ============================================================
+local shiftConn = UIS.InputBegan:Connect(function(inp, gpe)
+    if gpe then return end
+    if inp.KeyCode == Enum.KeyCode.LeftShift then
+        State.PanelVisible = not State.PanelVisible
+        MF.Visible   = State.PanelVisible
+        Aura.Visible = State.PanelVisible
+    end
+end)
+_table.insert(State.Connections, shiftConn)
