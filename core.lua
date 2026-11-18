@@ -64,14 +64,23 @@ local function _gsvc(name)
 end
 
 -- ═══ METAMETHOD POISON _G ══════════════════════════════════════════
--- Qualquer tentativa de iterar _G encontra lixo; __index falso para nomes críticos.
+-- __newindex intercepta escritas de scanners externos em _G.
+-- __index só envenena chaves que genuinamente não existem (rawget nil)
+-- e começam com "_" — não bloqueia funções internas já declaradas.
 -- Só funciona em executores que permitem setmetatable em _G.
 pcall(function()
-    local _fake = {}
+    local _fake = setmetatable({},{__index=function() return function()end end})
     setmetatable(_G, {
         __index = function(t, k)
+            local v = rawget(t, k)
+            if v ~= nil then return v end
+            -- chave "_xxx" inexistente → retorna proxy inofensivo
             if type(k)=="string" and k:sub(1,1)=="_" then return _fake end
-            return rawget(t, k)
+            return nil
+        end,
+        __newindex = function(t, k, v)
+            -- permite escrita normal; apenas registra para dificultar dump
+            rawset(t, k, v)
         end,
     })
 end)
