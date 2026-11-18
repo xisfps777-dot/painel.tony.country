@@ -1,4 +1,4 @@
--- core.lua | Roblox LuaU | Solara | v5
+-- core.lua | Roblox LuaU | Solara | v6
 -- Evasão: XOR, string split, junk globals, dead code, constant folding, anti-tamper
 
 -- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
@@ -56,7 +56,7 @@ local CFG={
     aim_toggle=Enum.KeyCode.X,
     aim_hold=Enum.UserInputType.MouseButton2,
     aim_fov=_FOV_DEF,
-    aim_smooth=_SM_DEF,
+    aim_smooth=_SM_DEF,       -- 0.0 = snap, 1.0 = muito suave
     aim_target=_j("He","ad"),
     aim_teamcheck=false,
 
@@ -91,9 +91,9 @@ end
 -- ═══ NEON HELPERS ═════════════════════════════════════════════════
 local NW=Color3.fromRGB(255,255,255)
 local NR=Color3.fromRGB(255,30,30)
-local BG_DARK  = Color3.fromRGB(4,4,4)
-local BG_ROW   = Color3.fromRGB(8,8,8)
-local BG_HDR   = Color3.fromRGB(10,10,10)
+local BG_DARK = Color3.fromRGB(4,4,4)
+local BG_ROW  = Color3.fromRGB(8,8,8)
+local BG_HDR  = Color3.fromRGB(10,10,10)
 
 local function _stroke(parent,color,thick,trans)
     local s=Instance.new("UIStroke")
@@ -145,10 +145,9 @@ local function _build_gui()
     if not ok then warn("[TC] parent falhou"); return end
     _gui_ref=gui
 
-    -- janela
     local win=Instance.new("Frame")
     win.Name="Win"
-    win.Size=UDim2.new(0,300,0,10)   -- altura ajustada no final
+    win.Size=UDim2.new(0,300,0,10)
     win.Position=UDim2.new(0,24,0.5,-200)
     win.BackgroundColor3=BG_DARK
     win.BorderSizePixel=0
@@ -156,13 +155,11 @@ local function _build_gui()
     win.ClipsDescendants=false; win.Parent=gui
     _corner(win,8)
 
-    -- borda neon branca pulsando
     local ws1=_stroke(win,NW,2.5,0)
     local ws2=_stroke(win,NW,5,0.6)
     table.insert(_pulse_fns,_mk_pulse(ws1,0,0.15,1.1))
     table.insert(_pulse_fns,_mk_pulse(ws2,0.4,0.4,1.1))
 
-    -- header
     local hdr=Instance.new("Frame")
     hdr.Size=UDim2.new(1,0,0,52)
     hdr.BackgroundColor3=BG_HDR
@@ -191,7 +188,6 @@ local function _build_gui()
     sep.BackgroundTransparency=0.7
     sep.BorderSizePixel=0; sep.ZIndex=2; sep.Parent=win
 
-    -- section label
     local function _sec(text,y)
         local f=Instance.new("Frame")
         f.Size=UDim2.new(1,-20,0,20)
@@ -205,7 +201,6 @@ local function _build_gui()
             UDim2.new(0,0,0,0),UDim2.new(1,0,1,0),3,true)
     end
 
-    -- toggle row
     local function _row(text,state,y,cb)
         local row=Instance.new("Frame")
         row.Size=UDim2.new(1,-20,0,28)
@@ -259,7 +254,6 @@ local function _build_gui()
         btn.MouseButton1Click:Connect(function() _st=not _st; cb(_st); _ref() end)
     end
 
-    -- fov slider
     local function _fov_slider(y)
         local frame=Instance.new("Frame")
         frame.Size=UDim2.new(1,-20,0,44)
@@ -398,10 +392,10 @@ local function _bbox(char)
         if p:IsA("BasePart") then
             local sz=p.Size*0.5; local cf=p.CFrame
             for _,o in ipairs({
-                Vector3.new(sz.X,sz.Y,sz.Z),Vector3.new(-sz.X,sz.Y,sz.Z),
-                Vector3.new(sz.X,-sz.Y,sz.Z),Vector3.new(-sz.X,-sz.Y,sz.Z),
-                Vector3.new(sz.X,sz.Y,-sz.Z),Vector3.new(-sz.X,sz.Y,-sz.Z),
-                Vector3.new(sz.X,-sz.Y,-sz.Z),Vector3.new(-sz.X,-sz.Y,-sz.Z),
+                Vector3.new( sz.X, sz.Y, sz.Z),Vector3.new(-sz.X, sz.Y, sz.Z),
+                Vector3.new( sz.X,-sz.Y, sz.Z),Vector3.new(-sz.X,-sz.Y, sz.Z),
+                Vector3.new( sz.X, sz.Y,-sz.Z),Vector3.new(-sz.X, sz.Y,-sz.Z),
+                Vector3.new( sz.X,-sz.Y,-sz.Z),Vector3.new(-sz.X,-sz.Y,-sz.Z),
             }) do
                 local wp=(cf*CFrame.new(o)).Position
                 local sp,inv,d=_w2s(wp)
@@ -437,9 +431,9 @@ local function _esp()
         if CFG.esp_box and bx then
             local clen=math.min(bw,bh)*0.22
             for _,c in ipairs({
-                {{bx,by},{bx+clen,by}},         {{bx,by},{bx,by+clen}},
-                {{bx+bw,by},{bx+bw-clen,by}},   {{bx+bw,by},{bx+bw,by+clen}},
-                {{bx,by+bh},{bx+clen,by+bh}},   {{bx,by+bh},{bx,by+bh-clen}},
+                {{bx,by},{bx+clen,by}},            {{bx,by},{bx,by+clen}},
+                {{bx+bw,by},{bx+bw-clen,by}},      {{bx+bw,by},{bx+bw,by+clen}},
+                {{bx,by+bh},{bx+clen,by+bh}},      {{bx,by+bh},{bx,by+bh-clen}},
                 {{bx+bw,by+bh},{bx+bw-clen,by+bh}},{{bx+bw,by+bh},{bx+bw,by+bh-clen}},
             }) do
                 _nd("Line",{From=Vector2.new(c[1][1],c[1][2]),
@@ -489,83 +483,181 @@ local function _esp()
     end
 end
 
--- ═══ AIMBOT ═══════════════════════════════════════════════════════
-local function _closest()
-    local center=_cam.ViewportSize/2
-    local best,bd=nil,CFG.aim_fov
-    for _,p in ipairs(_P:GetPlayers()) do
-        if p==_lp or _smt(p) then continue end
-        local char=p.Character
+-- ═══ AIMBOT v3 ════════════════════════════════════════════════════
+--
+-- DESIGN:
+--   • Sem CameraType.Scriptable — câmera Custom o tempo todo
+--   • Target lock: persiste o alvo enquanto ele tiver dentro do FOV
+--     e estiver vivo, em vez de recalcular todo frame (evita flicker)
+--   • Predição: Kalman-lite — média exponencial da velocidade (EMA)
+--     com ganho separado para aceleração, muito mais estável que lerp puro
+--   • Smoothing exponencial: alpha = 1 - exp(-k * dt)
+--     — independente de framerate, não robótico, gruda gradualmente
+--   • Boost de snap perto do alvo: quando o ângulo é < 2°, força alpha
+--     alto para não ficar oscilando em volta da head
+
+-- constantes de tuning (não expor no CFG pra não poluir a UI)
+local AIM_PRED_GAIN   = 3.0   -- multiplicador de predição (frames à frente)
+local AIM_EMA_ALPHA   = 0.25  -- suavização da velocidade estimada (0=lento,1=instantâneo)
+local AIM_SNAP_ANGLE  = 0.035 -- rad (~2°): abaixo disso força snap total
+local AIM_K_BASE      = 18.0  -- constante exponencial base (maior = mais rápido)
+
+-- estado do lock
+local _lock_target  = nil   -- Player travado atualmente
+local _lock_lost    = 0     -- tempo (s) desde que perdeu visão (grace period)
+local LOCK_GRACE    = 0.12  -- segundos de grace antes de soltar o alvo
+
+-- estado de predição (por alvo — reseta ao trocar)
+local _ema_vel      = Vector3.new(0,0,0)
+local _last_pos     = nil
+
+local function _in_fov(part)
+    local center = _cam.ViewportSize / 2
+    local sp, inv, d = _w2s(part.Position)
+    if not inv or d <= 0 then return false, 0 end
+    local dist_px = (sp - center).Magnitude
+    return dist_px <= CFG.aim_fov, dist_px
+end
+
+local function _pick_target()
+    -- se o alvo travado ainda é válido, mantém
+    if _lock_target then
+        local char = _lock_target.Character
+        local part = char and char:FindFirstChild(CFG.aim_target)
+        if part and _alive(char) and not _smt(_lock_target) then
+            local ok, _ = _in_fov(part)
+            if ok then
+                _lock_lost = 0
+                return _lock_target
+            end
+        end
+        -- perdeu visão — aplica grace period antes de soltar
+        _lock_lost = _lock_lost + (1/60)  -- aproximado; atualizado em _aimbot(dt)
+        if _lock_lost < LOCK_GRACE then
+            return _lock_target  -- ainda dentro do grace
+        end
+        -- solta o alvo
+        _lock_target = nil
+        _lock_lost   = 0
+        _ema_vel     = Vector3.new(0,0,0)
+        _last_pos    = nil
+    end
+
+    -- procura novo alvo mais próximo do centro do FOV
+    local center = _cam.ViewportSize / 2
+    local best, best_dist = nil, CFG.aim_fov
+    for _, p in ipairs(_P:GetPlayers()) do
+        if p == _lp or _smt(p) then continue end
+        local char = p.Character
         if not char or not _alive(char) then continue end
-        local part=char:FindFirstChild(CFG.aim_target)
+        local part = char:FindFirstChild(CFG.aim_target)
         if not part then continue end
-        local sp,inv,d=_w2s(part.Position)
-        if not inv or d<=0 then continue end
-        local sd=(sp-center).Magnitude
-        if sd<bd then bd=sd; best=p end
+        local ok, d = _in_fov(part)
+        if ok and d < best_dist then
+            best_dist = d
+            best = p
+        end
+    end
+
+    if best then
+        _lock_target = best
+        _lock_lost   = 0
+        _ema_vel     = Vector3.new(0,0,0)
+        _last_pos    = nil
     end
     return best
 end
 
--- ─── AIMBOT REESCRITO ─────────────────────────────────────────────
--- NÃO usa CameraType.Scriptable — isso trava movimento.
--- Usa camera:GetRenderCFrame() + VirtualUser ou direto no CFrame
--- via RunService.RenderStepped com prioridade Enum.RenderPriority.Camera.
--- A câmera Custom continua processando input do jogador normalmente;
--- a gente apenas sobrescreve o CFrame no fim do frame depois do engine.
-
-local _prev_vel = Vector3.new(0,0,0)
-
 local function _aimbot(dt)
-    if not CFG.aim then return end
+    if not CFG.aim then
+        _lock_target = nil
+        _lock_lost   = 0
+        _ema_vel     = Vector3.new(0,0,0)
+        _last_pos    = nil
+        return
+    end
 
     local holding = _UIS:IsMouseButtonPressed(CFG.aim_hold)
     if not holding then
-        _prev_vel = Vector3.new(0,0,0)
+        -- não reseta o lock ao soltar RMB, só para de mover a câmera
+        -- (melhora UX: ao apertar de novo já retoma o alvo)
+        _lock_lost = _lock_lost + dt
+        if _lock_lost >= LOCK_GRACE then
+            _lock_target = nil
+            _lock_lost   = 0
+            _ema_vel     = Vector3.new(0,0,0)
+            _last_pos    = nil
+        end
         return
     end
 
-    local target = _closest()
-    if not target then
-        _prev_vel = Vector3.new(0,0,0)
-        return
+    -- atualiza grace com dt real
+    if _lock_target then
+        local char = _lock_target.Character
+        local part = char and char:FindFirstChild(CFG.aim_target)
+        if part and _alive(char) then
+            local ok, _ = _in_fov(part)
+            if ok then _lock_lost = 0
+            else        _lock_lost = _lock_lost + dt end
+        else
+            _lock_lost = _lock_lost + dt
+        end
+        if _lock_lost >= LOCK_GRACE then
+            _lock_target = nil
+            _lock_lost   = 0
+            _ema_vel     = Vector3.new(0,0,0)
+            _last_pos    = nil
+        end
     end
+
+    local target = _pick_target()
+    if not target then return end
 
     local char = target.Character; if not char then return end
     local part = char:FindFirstChild(CFG.aim_target); if not part then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
 
-    -- predição de movimento
-    local vel = Vector3.new(0,0,0)
-    if root then
-        local asm = root.AssemblyLinearVelocity
-        vel = _prev_vel:Lerp(asm, 0.5)
-        _prev_vel = vel
+    -- ── PREDIÇÃO: EMA de velocidade ──────────────────────────────
+    -- calcula velocidade real entre frames (mais preciso que AssemblyLinearVelocity
+    -- que pode ter jitter de network)
+    local cur_pos = part.Position
+    if _last_pos then
+        local raw_vel = (cur_pos - _last_pos) / math.max(dt, 0.001)
+        -- EMA: suaviza a estimativa de velocidade frame a frame
+        _ema_vel = _ema_vel + (raw_vel - _ema_vel) * AIM_EMA_ALPHA
     end
-    local predicted = part.Position + vel * dt * 2.2
+    _last_pos = cur_pos
 
-    -- ── abordagem sem Scriptable ──────────────────────────────────
-    -- lê o CFrame atual (já inclui movimento do jogador neste frame),
-    -- calcula direção para o alvo, e aplica lerp suave.
-    -- CameraType permanece Custom — o engine continua controlando
-    -- posição; só sobrescrevemos a rotação via CFrame assignment.
+    -- posição predita: posição atual + velocidade suavizada * tempo à frente
+    local predicted = cur_pos + _ema_vel * dt * AIM_PRED_GAIN
+
+    -- ── CÂMERA: rotação sem mudar CameraType ─────────────────────
     local cur = _cam.CFrame
-    local dir = (predicted - cur.Position).Unit
+    local dir = (predicted - cur.Position)
+    if dir.Magnitude < 0.001 then return end
+    dir = dir.Unit
 
-    -- CFrame virado pro alvo (posição inalterada)
     local tgt_cf = CFrame.new(cur.Position, cur.Position + dir)
 
-    -- smoothing: 0 = mais lento, 1 = snap imediato
-    -- aim_smooth padrão = 0.14 → snap = 0.86 → bem travado
-    local snap = math.clamp(1.0 - CFG.aim_smooth, 0.1, 1.0)
+    -- ângulo entre direção atual e alvo
+    local dot = math.clamp(cur.LookVector:Dot(tgt_cf.LookVector), -1, 1)
+    local angle = math.acos(dot)   -- rad
 
-    -- boost angular: longe do alvo = chega mais rápido
-    local ad = math.acos(math.clamp(cur.LookVector:Dot(tgt_cf.LookVector), -1, 1))
-    local alpha = math.clamp(snap + ad * 0.6, 0.1, 1.0)
+    -- smoothing exponencial: alpha = 1 - exp(-k * dt)
+    -- k aumenta quando estamos longe (chega rápido), diminui perto (suave)
+    -- CFG.aim_smooth: 0 = máximo snap (k alto), 1 = muito suave (k baixo)
+    local k_scale = math.clamp(1.0 - CFG.aim_smooth, 0.05, 1.0)
+    -- boost de distância: longe do alvo acelera o lock
+    local angle_boost = math.clamp(angle * 8.0, 0.0, 3.0)
+    local k = AIM_K_BASE * k_scale * (1.0 + angle_boost)
+    local alpha = 1.0 - math.exp(-k * dt)
 
-    -- só sobrescreve rotação, mantém posição que o engine já calculou
-    -- CameraType=Custom ignora CFrame.Position assignments de script
-    -- então isso é seguro: só a rotação muda
+    -- snap forçado quando está quase no alvo (evita oscilação residual)
+    if angle < AIM_SNAP_ANGLE then
+        alpha = 1.0
+    end
+
+    alpha = math.clamp(alpha, 0.0, 1.0)
+
     pcall(function()
         _cam.CFrame = cur:Lerp(tgt_cf, alpha)
     end)
@@ -574,7 +666,7 @@ end
 -- ═══ INIT ═════════════════════════════════════════════════════════
 _build_gui()
 
-_UIS.InputBegan:Connect(function(input,gpe)
+_UIS.InputBegan:Connect(function(input, gpe)
     if gpe or _DESTROYED then return end
     if input.KeyCode == CFG.gui_toggle then
         _gui_vis = not _gui_vis
@@ -582,7 +674,12 @@ _UIS.InputBegan:Connect(function(input,gpe)
     end
     if input.KeyCode == CFG.aim_toggle then
         CFG.aim = not CFG.aim
-        _prev_vel = Vector3.new(0,0,0)
+        if not CFG.aim then
+            _lock_target = nil
+            _lock_lost   = 0
+            _ema_vel     = Vector3.new(0,0,0)
+            _last_pos    = nil
+        end
         pcall(function()
             _SG:SetCore("SendNotification",{
                 Title="Aimbot",
@@ -593,14 +690,11 @@ _UIS.InputBegan:Connect(function(input,gpe)
     end
 end)
 
--- RenderStepped com Last priority = roda depois do engine atualizar
--- a câmera, mas antes do frame ser desenhado. É o momento certo
--- pra sobrescrever o CFrame sem travar o personagem.
 _RS.RenderStepped:Connect(function(dt)
     if _DESTROYED then return end
     _t = _t + dt
     _cam = workspace.CurrentCamera
-    for _,fn in ipairs(_pulse_fns) do fn(_t) end
+    for _, fn in ipairs(_pulse_fns) do fn(_t) end
     _fc.Position = _cam.ViewportSize / 2
     _fc.Visible  = CFG.aim
     _esp()
@@ -609,6 +703,9 @@ end)
 
 _lp.CharacterAdded:Connect(function()
     if _DESTROYED then return end
-    _cam = workspace.CurrentCamera
-    _prev_vel = Vector3.new(0,0,0)
+    _cam        = workspace.CurrentCamera
+    _lock_target = nil
+    _lock_lost   = 0
+    _ema_vel     = Vector3.new(0,0,0)
+    _last_pos    = nil
 end)
