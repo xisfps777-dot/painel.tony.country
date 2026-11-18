@@ -1,4 +1,4 @@
---- core.lua | Roblox LuaU | Solara | v7
+-- core.lua | Roblox LuaU | Solara | v7
 -- Evasão: XOR, string split, junk globals, dead code, constant folding, anti-tamper
 
 -- ═══ ANTI-TAMPER ══════════════════════════════════════════════════
@@ -182,7 +182,7 @@ local function _build_gui()
         UDim2.new(0,0,0,10),UDim2.new(1,0,0,28),4,true)
     title.TextStrokeTransparency=1
 
-    local sub=_label(hdr,"BARRETO",9,
+    local sub=_label(hdr,"✦  ESP  ·  AIMBOT  ✦",9,
         Color3.fromRGB(160,160,160),
         Enum.TextXAlignment.Center,
         UDim2.new(0,0,0,38),UDim2.new(1,0,0,16),3,false)
@@ -408,9 +408,26 @@ local function _build_gui()
 end
 
 -- ═══ UTILS ════════════════════════════════════════════════════════
+-- pega humanoid em qualquer lugar do char (R6, R15, custom rigs)
+local function _get_hum(char)
+    if not char then return nil end
+    local h = char:FindFirstChildOfClass("Humanoid")
+    if not h then h = char:FindFirstChildWhichIsA("Humanoid") end
+    return h
+end
+
 local function _alive(char)
-    local h=char and char:FindFirstChildOfClass("Humanoid")
-    return h and h.Health>0
+    local h = _get_hum(char)
+    return h and h.Health > 0
+end
+
+-- pega a parte raiz: tenta HumanoidRootPart, Torso, UpperTorso, qualquer BasePart
+local function _get_root(char)
+    if not char then return nil end
+    return char:FindFirstChild("HumanoidRootPart")
+        or char:FindFirstChild("Torso")
+        or char:FindFirstChild("UpperTorso")
+        or char:FindFirstChildWhichIsA("BasePart")
 end
 local function _smt(p)
     if not CFG.aim_teamcheck then return false end
@@ -420,65 +437,119 @@ local function _w2s(pos)
     local s,inv=_cam:WorldToViewportPoint(pos)
     return Vector2.new(s.X,s.Y),inv,s.Z
 end
+-- lista de nomes de partes do corpo aceitas (R6 + R15 + variações comuns)
+local _BODY_PARTS = {
+    ["Head"]=true,
+    ["Torso"]=true, ["UpperTorso"]=true, ["LowerTorso"]=true,
+    ["HumanoidRootPart"]=true,
+    ["Left Arm"]=true,  ["Right Arm"]=true,
+    ["Left Leg"]=true,  ["Right Leg"]=true,
+    ["LeftUpperArm"]=true,  ["LeftLowerArm"]=true,  ["LeftHand"]=true,
+    ["RightUpperArm"]=true, ["RightLowerArm"]=true, ["RightHand"]=true,
+    ["LeftUpperLeg"]=true,  ["LeftLowerLeg"]=true,  ["LeftFoot"]=true,
+    ["RightUpperLeg"]=true, ["RightLowerLeg"]=true, ["RightFoot"]=true,
+}
+
 local function _bbox(char)
-    local vp   = _cam.ViewportSize
+    local vp = _cam.ViewportSize
     local mnx,mny,mxx,mxy = math.huge,math.huge,-math.huge,-math.huge
-    for _,p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            -- ignora partes gigantes (terreno, veículos, etc.)
-            local sz = p.Size
-            if sz.X>12 or sz.Y>12 or sz.Z>12 then continue end
-            local hs = sz*0.5; local cf = p.CFrame
-            for _,o in ipairs({
-                Vector3.new( hs.X, hs.Y, hs.Z),Vector3.new(-hs.X, hs.Y, hs.Z),
-                Vector3.new( hs.X,-hs.Y, hs.Z),Vector3.new(-hs.X,-hs.Y, hs.Z),
-                Vector3.new( hs.X, hs.Y,-hs.Z),Vector3.new(-hs.X, hs.Y,-hs.Z),
-                Vector3.new( hs.X,-hs.Y,-hs.Z),Vector3.new(-hs.X,-hs.Y,-hs.Z),
-            }) do
-                local wp = (cf*CFrame.new(o)).Position
-                local sp,inv,d = _w2s(wp)
-                if inv and d>0 then
-                    -- clamp no viewport para não explodir a box
-                    local sx = math.clamp(sp.X,-50,vp.X+50)
-                    local sy = math.clamp(sp.Y,-50,vp.Y+50)
-                    if sx<mnx then mnx=sx end
-                    if sy<mny then mny=sy end
-                    if sx>mxx then mxx=sx end
-                    if sy>mxy then mxy=sy end
-                end
-            end
+    local found = false
+
+    for _,p in ipairs(char:GetChildren()) do
+        if not p:IsA("BasePart") then continue end
+        -- aceita partes conhecidas do corpo OU partes pequenas o suficiente
+        local sz = p.Size
+        local named = _BODY_PARTS[p.Name]
+        if not named and (sz.X>8 or sz.Y>8 or sz.Z>8) then continue end
+
+        local hs = sz * 0.5
+        local cf = p.CFrame
+        for _,o in ipairs({
+            Vector3.new( hs.X, hs.Y, hs.Z), Vector3.new(-hs.X, hs.Y, hs.Z),
+            Vector3.new( hs.X,-hs.Y, hs.Z), Vector3.new(-hs.X,-hs.Y, hs.Z),
+            Vector3.new( hs.X, hs.Y,-hs.Z), Vector3.new(-hs.X, hs.Y,-hs.Z),
+            Vector3.new( hs.X,-hs.Y,-hs.Z), Vector3.new(-hs.X,-hs.Y,-hs.Z),
+        }) do
+            local wp = (cf * CFrame.new(o)).Position
+            local sp,inv,d = _w2s(wp)
+            if not inv or d <= 0 then continue end
+            local sx = math.clamp(sp.X, 0, vp.X)
+            local sy = math.clamp(sp.Y, 0, vp.Y)
+            if sx < mnx then mnx=sx end
+            if sy < mny then mny=sy end
+            if sx > mxx then mxx=sx end
+            if sy > mxy then mxy=sy end
+            found = true
         end
     end
-    if mnx==math.huge then return nil end
+
+    if not found then return nil end
     local w,h = mxx-mnx, mxy-mny
-    -- descarta bbox absurda (> metade do viewport)
-    if w>vp.X*0.6 or h>vp.Y*0.6 then return nil end
-    return mnx,mny,w,h
+    if w < 2 or h < 2 then return nil end
+    if w > vp.X*0.55 or h > vp.Y*0.75 then return nil end
+    return mnx, mny, w, h
 end
 
 -- ═══ ESP ══════════════════════════════════════════════════════════
 local function _esp()
     _clr()
     if not CFG.esp then return end
-    for _,p in ipairs(_P:GetPlayers()) do
-        if p==_lp then continue end
-        local char=p.Character
-        if not char or not _alive(char) then continue end
-        local root=char:FindFirstChild("HumanoidRootPart")
-        if not root then continue end
-        local dist=(_cam.CFrame.Position-root.Position).Magnitude
-        if dist>CFG.esp_max_dist then continue end
-        local sp,inv,depth=_w2s(root.Position)
-        if not inv or depth<=0 then continue end
-        local bx,by,bw,bh=_bbox(char)
 
-        if CFG.esp_box and bx then
-            local clen=math.min(bw,bh)*0.22
+    for _,p in ipairs(_P:GetPlayers()) do
+        if p == _lp then continue end
+
+        local char = p.Character
+        if not char then continue end
+        if not _alive(char) then continue end
+
+        local root = _get_root(char)
+        if not root then continue end
+
+        local rootPos = root.Position
+        local dist = (_cam.CFrame.Position - rootPos).Magnitude
+        if dist > CFG.esp_max_dist then continue end
+
+        -- verifica se root está na tela
+        local _,inv,depth = _w2s(rootPos)
+        if not inv or depth <= 0 then continue end
+
+        -- bbox: tenta partes do char; fallback: constrói box ao redor do root
+        local bx,by,bw,bh = _bbox(char)
+
+        -- fallback: se bbox falhar, estima a box pela posição do root + altura do humanoid
+        if not bx then
+            local hum = _get_hum(char)
+            local hipHeight = hum and hum.HipHeight or 1.5
+            local halfH = hipHeight + 1.0   -- torso + cabeça aproximado
+
+            local topPt    = _w2s(rootPos + Vector3.new(0, halfH, 0))
+            local botPt    = _w2s(rootPos - Vector3.new(0, hipHeight * 0.5, 0))
+            local leftPt   = _w2s(rootPos + Vector3.new(-1, 0, 0))
+            local rightPt  = _w2s(rootPos + Vector3.new( 1, 0, 0))
+
+            local vp = _cam.ViewportSize
+            local x1 = math.clamp(math.min(leftPt.X, rightPt.X), 0, vp.X)
+            local x2 = math.clamp(math.max(leftPt.X, rightPt.X), 0, vp.X)
+            local y1 = math.clamp(topPt.Y, 0, vp.Y)
+            local y2 = math.clamp(botPt.Y, 0, vp.Y)
+            local w  = math.max(x2-x1, 20)
+            local h  = math.max(y2-y1, 30)
+            -- centraliza no root projetado
+            local rsp = _w2s(rootPos)
+            bx = rsp.X - w/2
+            by = y1
+            bw = w
+            bh = h
+        end
+
+        -- box (corner style)
+        if CFG.esp_box then
+            local clen = math.min(bw,bh) * 0.22
             for _,c in ipairs({
-                {{bx,by},{bx+clen,by}},            {{bx,by},{bx,by+clen}},
-                {{bx+bw,by},{bx+bw-clen,by}},      {{bx+bw,by},{bx+bw,by+clen}},
-                {{bx,by+bh},{bx+clen,by+bh}},      {{bx,by+bh},{bx,by+bh-clen}},
-                {{bx+bw,by+bh},{bx+bw-clen,by+bh}},{{bx+bw,by+bh},{bx+bw,by+bh-clen}},
+                {{bx,by},{bx+clen,by}},             {{bx,by},{bx,by+clen}},
+                {{bx+bw,by},{bx+bw-clen,by}},       {{bx+bw,by},{bx+bw,by+clen}},
+                {{bx,by+bh},{bx+clen,by+bh}},       {{bx,by+bh},{bx,by+bh-clen}},
+                {{bx+bw,by+bh},{bx+bw-clen,by+bh}}, {{bx+bw,by+bh},{bx+bw,by+bh-clen}},
             }) do
                 _nd("Line",{From=Vector2.new(c[1][1],c[1][2]),
                     To=Vector2.new(c[2][1],c[2][2]),
@@ -491,7 +562,8 @@ local function _esp()
             end
         end
 
-        if CFG.esp_name and bx then
+        -- nome
+        if CFG.esp_name then
             _nd("Text",{Text=p.Name,
                 Position=Vector2.new(bx+bw/2+1,by-13),
                 Size=13,Color=Color3.new(0,0,0),
@@ -502,7 +574,8 @@ local function _esp()
                 Outline=false,Center=true,Visible=true,ZIndex=4})
         end
 
-        if CFG.esp_dist and bx then
+        -- distância
+        if CFG.esp_dist then
             _nd("Text",{
                 Text=("%.0fm"):format(dist),
                 Position=Vector2.new(bx+bw/2,by+bh+3),
@@ -510,17 +583,24 @@ local function _esp()
                 Outline=true,Center=true,Visible=true,ZIndex=4})
         end
 
-        if CFG.esp_hp and bx then
-            local h=char:FindFirstChildOfClass("Humanoid")
-            if h then
-                local r=math.clamp(h.Health/h.MaxHealth,0,1)
-                local bx2=bx-8
-                _nd("Line",{From=Vector2.new(bx2,by),To=Vector2.new(bx2,by+bh),
+        -- hp bar — altura fixa baseada em bh, mínimo de 20px
+        if CFG.esp_hp then
+            local hum = _get_hum(char)
+            if hum and hum.MaxHealth > 0 then
+                local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                local barH  = math.max(bh, 20)
+                local bx2   = bx - 7
+                local topY  = by
+                local botY  = by + barH
+                local fillY = botY - barH * ratio
+                local hpR   = math.floor(255 * (1 - ratio))
+                local hpG   = math.floor(255 * ratio)
+                -- fundo preto
+                _nd("Line",{From=Vector2.new(bx2,topY),To=Vector2.new(bx2,botY),
                     Color=Color3.new(0,0,0),Thickness=5,Visible=true,ZIndex=2})
-                _nd("Line",{
-                    From=Vector2.new(bx2,by+bh),
-                    To=Vector2.new(bx2,by+bh-(bh*r)),
-                    Color=Color3.fromRGB(math.floor(255*(1-r)),math.floor(255*r),40),
+                -- barra colorida
+                _nd("Line",{From=Vector2.new(bx2,botY),To=Vector2.new(bx2,fillY),
+                    Color=Color3.fromRGB(hpR,hpG,40),
                     Thickness=3,Visible=true,ZIndex=3})
             end
         end
