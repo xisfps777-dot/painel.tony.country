@@ -92,12 +92,12 @@ end
 local NW  = Color3.fromRGB(255,255,255)
 local NR  = Color3.fromRGB(255,30,30)
 -- azul neon igual ao painel de referência
-local NEON      = Color3.fromRGB(0,180,255)
-local NEON_DARK = Color3.fromRGB(0,100,200)
-local BG_WIN    = Color3.fromRGB(5,8,18)      -- azul muito escuro
-local BG_HDR    = Color3.fromRGB(8,12,28)
-local BG_ROW    = Color3.fromRGB(7,10,22)
-local BG_SEC    = Color3.fromRGB(10,14,30)
+local NEON      = Color3.fromRGB(255,255,255)
+local NEON_DARK = Color3.fromRGB(180,180,180)
+local BG_WIN    = Color3.fromRGB(5,5,5)      -- azul muito escuro
+local BG_HDR    = Color3.fromRGB(10,10,10)
+local BG_ROW    = Color3.fromRGB(8,8,8)
+local BG_SEC    = Color3.fromRGB(12,12,12)
 
 -- ═══ HELPERS ══════════════════════════════════════════════════════
 local function _corner(p,r)
@@ -231,7 +231,7 @@ local function _build_gui()
     end)
 
     local sub=_label(hdr,"✦  ESP  ·  AIMBOT  ✦",9,
-        Color3.fromRGB(80,160,255),
+        Color3.fromRGB(160,160,160),
         Enum.TextXAlignment.Center,
         UDim2.new(0,0,0,38),UDim2.new(1,0,0,16),3,false)
     sub.TextStrokeColor3=NEON
@@ -280,16 +280,16 @@ local function _build_gui()
         rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
         local rpf=nil
 
-        _label(row,text,12,Color3.fromRGB(210,220,255),
+        _label(row,text,12,Color3.fromRGB(210,210,210),
             Enum.TextXAlignment.Left,
             UDim2.new(0,12,0,0),UDim2.new(0.6,0,1,0),3,false)
 
         local btn=Instance.new("TextButton")
         btn.Size=UDim2.new(0,58,0,22)
         btn.Position=UDim2.new(1,-64,0.5,-11)
-        btn.BackgroundColor3=Color3.fromRGB(12,16,36)
+        btn.BackgroundColor3=Color3.fromRGB(14,14,14)
         btn.Text="OFF"
-        btn.TextColor3=Color3.fromRGB(80,100,160)
+        btn.TextColor3=Color3.fromRGB(90,90,90)
         btn.TextSize=12; btn.Font=Enum.Font.GothamBold
         btn.BorderSizePixel=0; btn.ZIndex=4; btn.Parent=row
         _corner(btn,6)
@@ -337,8 +337,8 @@ local function _build_gui()
                 table.insert(_pulse_fns,rpf)
             else
                 -- OFF: escuro, sem glow
-                btn.BackgroundColor3=Color3.fromRGB(12,16,36)
-                btn.TextColor3=Color3.fromRGB(80,100,160); btn.Text="OFF"
+                btn.BackgroundColor3=Color3.fromRGB(14,14,14)
+                btn.TextColor3=Color3.fromRGB(90,90,90); btn.Text="OFF"
                 rs1.Transparency=1; rs2.Transparency=1; rs3.Transparency=1
                 bs1.Transparency=1; bs2.Transparency=1; bs3.Transparency=1
                 for _,pf in ipairs({bpf,rpf}) do
@@ -365,7 +365,7 @@ local function _build_gui()
         _corner(frame,7)
         _glow_stroke(frame,NEON,1,4,0)
 
-        _label(frame,"  FOV",12,Color3.fromRGB(210,220,255),
+        _label(frame,"  FOV",12,Color3.fromRGB(210,210,210),
             Enum.TextXAlignment.Left,
             UDim2.new(0,0,0,2),UDim2.new(0.4,0,0,20),3,false)
 
@@ -384,7 +384,7 @@ local function _build_gui()
         local track=Instance.new("Frame")
         track.Size=UDim2.new(1,-18,0,5)
         track.Position=UDim2.new(0,9,0,32)
-        track.BackgroundColor3=Color3.fromRGB(15,20,45)
+        track.BackgroundColor3=Color3.fromRGB(25,25,25)
         track.BorderSizePixel=0; track.ZIndex=3; track.Parent=frame
         _corner(track,3)
 
@@ -458,7 +458,7 @@ local function _build_gui()
     info.Position=UDim2.new(0,8,0,Y)
     info.BackgroundTransparency=1
     info.Text="X = toggle aim  ·  RMB = aim  ·  RShift = hide"
-    info.TextColor3=Color3.fromRGB(40,80,140)
+    info.TextColor3=Color3.fromRGB(55,55,55)
     info.TextSize=9; info.Font=Enum.Font.Gotham
     info.TextXAlignment=Enum.TextXAlignment.Center
     info.ZIndex=3; info.Parent=win
