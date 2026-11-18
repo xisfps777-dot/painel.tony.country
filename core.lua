@@ -437,30 +437,28 @@ local function _w2s(pos)
     local s,inv=_cam:WorldToViewportPoint(pos)
     return Vector2.new(s.X,s.Y),inv,s.Z
 end
--- lista de nomes de partes do corpo aceitas (R6 + R15 + variações comuns)
-local _BODY_PARTS = {
-    ["Head"]=true,
-    ["Torso"]=true, ["UpperTorso"]=true, ["LowerTorso"]=true,
-    ["HumanoidRootPart"]=true,
-    ["Left Arm"]=true,  ["Right Arm"]=true,
-    ["Left Leg"]=true,  ["Right Leg"]=true,
-    ["LeftUpperArm"]=true,  ["LeftLowerArm"]=true,  ["LeftHand"]=true,
-    ["RightUpperArm"]=true, ["RightLowerArm"]=true, ["RightHand"]=true,
-    ["LeftUpperLeg"]=true,  ["LeftLowerLeg"]=true,  ["LeftFoot"]=true,
-    ["RightUpperLeg"]=true, ["RightLowerLeg"]=true, ["RightFoot"]=true,
-}
-
 local function _bbox(char)
-    local vp = _cam.ViewportSize
+    local vp  = _cam.ViewportSize
+    local vpX, vpY = vp.X, vp.Y
     local mnx,mny,mxx,mxy = math.huge,math.huge,-math.huge,-math.huge
     local found = false
 
-    for _,p in ipairs(char:GetChildren()) do
+    -- coleta TODAS as BasePart filhas diretas e descendentes do char
+    -- filtra apenas por tamanho (nada maior que 20 studs em qualquer eixo)
+    -- e por distância ao root (descarta partes soltas muito longe do corpo)
+    local root = _get_root(char)
+    local rootPos = root and root.Position or nil
+
+    for _,p in ipairs(char:GetDescendants()) do
         if not p:IsA("BasePart") then continue end
-        -- aceita partes conhecidas do corpo OU partes pequenas o suficiente
         local sz = p.Size
-        local named = _BODY_PARTS[p.Name]
-        if not named and (sz.X>8 or sz.Y>8 or sz.Z>8) then continue end
+        -- descarta partes muito grandes (mapa, veículo, prop)
+        if sz.X > 15 or sz.Y > 15 or sz.Z > 15 then continue end
+        -- se temos root, descarta partes muito longe do corpo (> 10 studs)
+        if rootPos then
+            local d3 = (p.Position - rootPos).Magnitude
+            if d3 > 10 then continue end
+        end
 
         local hs = sz * 0.5
         local cf = p.CFrame
@@ -470,11 +468,11 @@ local function _bbox(char)
             Vector3.new( hs.X, hs.Y,-hs.Z), Vector3.new(-hs.X, hs.Y,-hs.Z),
             Vector3.new( hs.X,-hs.Y,-hs.Z), Vector3.new(-hs.X,-hs.Y,-hs.Z),
         }) do
-            local wp = (cf * CFrame.new(o)).Position
+            local wp  = (cf * CFrame.new(o)).Position
             local sp,inv,d = _w2s(wp)
             if not inv or d <= 0 then continue end
-            local sx = math.clamp(sp.X, 0, vp.X)
-            local sy = math.clamp(sp.Y, 0, vp.Y)
+            local sx = math.clamp(sp.X, 0, vpX)
+            local sy = math.clamp(sp.Y, 0, vpY)
             if sx < mnx then mnx=sx end
             if sy < mny then mny=sy end
             if sx > mxx then mxx=sx end
@@ -486,7 +484,7 @@ local function _bbox(char)
     if not found then return nil end
     local w,h = mxx-mnx, mxy-mny
     if w < 2 or h < 2 then return nil end
-    if w > vp.X*0.55 or h > vp.Y*0.75 then return nil end
+    if w > vpX*0.6 or h > vpY*0.8 then return nil end
     return mnx, mny, w, h
 end
 
